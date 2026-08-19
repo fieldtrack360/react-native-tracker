@@ -1,0 +1,87 @@
+# Resolve react_native_pods.rb with node to allow for hoisting
+require Pod::Executable.execute_command('node', ['-p',
+  'require.resolve(
+    "react-native/scripts/react_native_pods.rb",
+    {paths: [process.argv[1]]},
+  )', __dir__]).strip
+
+# the package floor is iOS 17.0 (the vendored Tracker frameworks target
+# arm64-apple-ios17.0 and are not weak-linked). The post_install gate below enforces it on the
+# app target.
+platform :ios, '17.0'
+
+# RN 0.87's prebuilt React core has separate Debug and Release binaries. A stale
+# configuration switch can leave the Release framework in place for a Debug app,
+# which makes Fabric codegen reference debug-only C++ symbols that are not present
+# in the linked framework. Build React core from source so the app and React use
+# the same configuration and compiler definitions.
+ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
+
+prepare_react_native_project!
+
+linkage = ENV['USE_FRAMEWORKS']
+if linkage != nil
+  Pod::UI.puts "Configuring Pod with #{linkage}ally linked Frameworks".green
+  use_frameworks! :linkage => linkage.to_sym
+end
+
+target 'ReactNativeTrackerExample' do
+  config = use_native_modules!
+
+  use_react_native!(
+    :path => config[:reactNativePath],
+    # An absolute path to your application root.
+    :app_path => "#{Pod::Config.instance.installation_root}/.."
+  )
+
+  post_install do |installer|
+    react_native_post_install(
+      installer,
+      config[:reactNativePath],
+      :mac_catalyst_enabled => false,
+      # :ccache_enabled => true
+    )
+
+    # The RN 0.87 Hermes switcher assumes a missing marker means the installed
+    # framework is Debug. CocoaPods can preserve a Release framework while dropping
+    # that dotfile, causing Debug React-Hermes code to link against Release Hermes.
+    # Seed the opposite marker when it is missing so the upstream switcher always
+    # extracts the archive matching the active Xcode configuration.
+    hermes_target = installer.pods_project.targets.find { |target| target.name == 'hermes-engine' }
+    hermes_phase = hermes_target&.shell_script_build_phases&.find do |phase|
+      phase.name.include?('Replace Hermes for the right configuration')
+    end
+    if hermes_phase
+      marker_guard = <<-SCRIPT
+        CONFIG="$CONFIGURATION"
+        MARKER="$PODS_ROOT/hermes-engine/.last_build_configuration"
+        if [ ! -f "$MARKER" ]; then
+          if [ "$CONFIG" = "Debug" ]; then
+            printf 'Release' > "$MARKER"
+          else
+            printf 'Debug' > "$MARKER"
+          fi
+        fi
+      SCRIPT
+      hermes_phase.shell_script = marker_guard + hermes_phase.shell_script
+    end
+
+    # deployment-target gate. s.platforms alone only hard-fails a *clean* install; an
+    # incremental install against an existing lockfile merely warns and exits 0, so a developer
+    # who lowers their target after a first success gets an ignorable warning and then a launch
+    # crash (dyld cannot load a framework whose MinimumOSVersion is 17). No mechanism inside the
+    # podspec can see the app's target, so the check lives here, where it is visible.
+    installer.aggregate_targets.each do |aggregate|
+      aggregate.user_project.native_targets.each do |native|
+        next unless native.symbol_type == :application
+        native.build_configurations.each do |cfg|
+          dt = (cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] || '0').to_f
+          if dt < 17.0
+            raise "Tracker requires iOS 17.0+, but target #{native.name} (#{cfg.name}) is set to #{dt}. " \
+                  "Raise IPHONEOS_DEPLOYMENT_TARGET to 17.0."
+          end
+        end
+      end
+    end
+  end
+end

@@ -1,0 +1,25 @@
+buildscript {
+    ext {
+        buildToolsVersion = "37.0.0"
+        minSdkVersion = 26
+        compileSdkVersion = 37
+        targetSdkVersion = 36
+        ndkVersion = "27.1.12297006"
+        // 2.4.x, not React Native's 2.2.0 pin. The Tracker AAR is compiled with Kotlin 2.4
+        // metadata, and a 2.2 compiler cannot read it at all — every SDK type reports "was compiled
+        // with an incompatible version of Kotlin". RN pins 2.2.0 for its own plugin build; the app's
+        // compiler is the host's choice, and this host has to match its SDK.
+        kotlinVersion = "2.4.10"
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath("com.android.tools.build:gradle")
+        classpath("com.facebook.react:react-native-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    }
+}
+
+apply plugin: "com.facebook.react.rootproject"

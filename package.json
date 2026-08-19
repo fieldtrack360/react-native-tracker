@@ -1,0 +1,206 @@
+{
+  "name": "@fieldtrack360/react-native-tracker",
+  "version": "1.0.0",
+  "description": "React Native bridge for the Tracker location SDK (iOS + Android)",
+  "main": "./lib/module/index.js",
+  "types": "./lib/typescript/src/index.d.ts",
+  "exports": {
+    ".": {
+      "fieldtrack360-react-native-tracker-source": "./src/index.ts",
+      "types": "./lib/typescript/src/index.d.ts",
+      "default": "./lib/module/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src",
+    "lib",
+    "android",
+    "ios",
+    "plugin/build",
+    "scripts",
+    "app.plugin.js",
+    "*.podspec",
+    "react-native.config.js",
+    "!ios/Frameworks",
+    "!ios/build",
+    "!android/build",
+    "!android/gradle",
+    "!android/gradlew",
+    "!android/gradlew.bat",
+    "!android/local.properties",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__",
+    "!**/.*"
+  ],
+  "scripts": {
+    "example:start": "npm run start --workspace @fieldtrack360/react-native-tracker-example",
+    "example:ios": "npm run ios --workspace @fieldtrack360/react-native-tracker-example",
+    "example:android": "npm run android --workspace @fieldtrack360/react-native-tracker-example",
+    "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build lib",
+    "prepare": "bob build && tsc -p plugin",
+    "typecheck": "tsc",
+    "test": "jest",
+    "lint": "eslint \"**/*.{js,ts,tsx}\"",
+    "release": "release-it --only-version",
+    "postinstall": "node scripts/fetch-ios-frameworks.js",
+    "build:plugin": "tsc -p plugin"
+  },
+  "keywords": [
+    "react-native",
+    "ios",
+    "android"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fieldtrack360/react-native-tracker.git"
+  },
+  "author": "Devstree <dev@devstree.in> (https://devstree.in)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/fieldtrack360/react-native-tracker/issues"
+  },
+  "homepage": "https://github.com/fieldtrack360/react-native-tracker#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "devDependencies": {
+    "@commitlint/config-conventional": "^21.0.2",
+    "@eslint/compat": "^2.1.0",
+    "@eslint/eslintrc": "^3.3.5",
+    "@eslint/js": "^9.39.0",
+    "@expo/config-plugins": "^9.0.10",
+    "@jest/globals": "^29.7.0",
+    "@react-native/babel-preset": "0.87.0",
+    "@react-native/eslint-config": "0.85.0",
+    "@react-native/jest-preset": "0.85.0",
+    "@release-it/conventional-changelog": "^11.0.1",
+    "@types/react": "^19.2.0",
+    "commitlint": "^21.0.2",
+    "del-cli": "^7.0.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-ft-flow": "^3.0.11",
+    "eslint-plugin-prettier": "^5.5.6",
+    "jest": "^29.7.0",
+    "lefthook": "^2.1.9",
+    "prettier": "^3.8.3",
+    "react": "19.2.3",
+    "react-native": "0.87.0",
+    "react-native-builder-bob": "^0.43.0",
+    "release-it": "^20.2.0",
+    "turbo": "^2.9.16",
+    "typescript": "^6.0.3"
+  },
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "workspaces": [
+    "example"
+  ],
+  "packageManager": "npm@11.4.2",
+  "react-native-builder-bob": {
+    "source": "src",
+    "output": "lib",
+    "targets": [
+      [
+        "module",
+        {
+          "esm": true
+        }
+      ],
+      [
+        "typescript",
+        {
+          "project": "tsconfig.build.json"
+        }
+      ]
+    ]
+  },
+  "codegenConfig": {
+    "name": "RNTrackerSpec",
+    "type": "all",
+    "jsSrcsDir": "src",
+    "android": {
+      "javaPackageName": "com.fieldtrack360.tracker"
+    },
+    "ios": {
+      "componentProvider": {
+        "TrackMapView": "TrackMapViewComponentView",
+        "LiveTrackMapView": "LiveTrackMapViewComponentView"
+      }
+    }
+  },
+  "prettier": {
+    "quoteProps": "consistent",
+    "singleQuote": true,
+    "tabWidth": 2,
+    "trailingComma": "es5",
+    "useTabs": false
+  },
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ],
+    "rules": {
+      "body-max-line-length": [
+        0,
+        "always",
+        100
+      ],
+      "footer-max-line-length": [
+        0,
+        "always",
+        100
+      ]
+    }
+  },
+  "release-it": {
+    "git": {
+      "commitMessage": "chore: release ${version}",
+      "tagName": "v${version}"
+    },
+    "npm": {
+      "publish": true
+    },
+    "github": {
+      "release": true
+    },
+    "plugins": {
+      "@release-it/conventional-changelog": {
+        "preset": {
+          "name": "angular"
+        }
+      }
+    }
+  },
+  "create-react-native-library": {
+    "type": "turbo-module",
+    "languages": "kotlin-objc",
+    "tools": [
+      "eslint",
+      "jest",
+      "lefthook",
+      "release-it",
+      "vite"
+    ],
+    "version": "0.63.0"
+  },
+  "tracker": {
+    "android": "v1.0.1-alpha-07",
+    "ios": {
+      "tag": "1.0.0",
+      "commit": "f18c4a6b6107a63c97f552a05b3f18703c6f73ad",
+      "checksumRule": "per XCFramework: sha256 over the manifest of every regular file under the framework, sorted by POSIX-relative path, each entry <relpath>\\0<sha256(file)>\\0 (see scripts/fetch-ios-frameworks.js digestXcframework)",
+      "checksums": {
+        "TrackerGeo.xcframework": "1b59cc82ac0a859e2509158923f0cfd5b740788e181701801dcfd85913b6594f",
+        "TrackerCore.xcframework": "d377308d90caa47eb29d76a6f3baccba20951d414bfefd5905e1a99a1abd18d3",
+        "TrackerMaps.xcframework": "ac1e3e5004cfed48edbe6cd1085d67453a572f804bee36dd8881fb9c7c759c95",
+        "TrackerSnap.xcframework": "c26ab540d45c9e86cd765039272071664667818e74b9cf40c6720fc0cd307557",
+        "TrackerSync.xcframework": "f5e12b956ba6cd4989b85688134c6ee24e9dc0f9a799a0b5fd32e1cfb49c3809"
+      }
+    }
+  }
+}

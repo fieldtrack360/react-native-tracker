@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    "rootDir": ".",
+    "paths": {
+      "@fieldtrack360/react-native-tracker": [
+        "./src/index"
+      ]
+    },
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
+    "customConditions": [
+      "fieldtrack360-react-native-tracker-source",
+      "react-native-strict-api"
+    ],
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "jsx": "react-jsx",
+    "lib": [
+      "ESNext"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ESNext",
+    "verbatimModuleSyntax": true
+  },
+  "exclude": [
+    "lib",
+    "plugin/build",
+    "node_modules",
+    "example/ios",
+    "example/android"
+  ]
+}

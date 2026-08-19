@@ -1,0 +1,45 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+      android:name=".MainApplication"
+      android:label="@string/app_name"
+      android:icon="@mipmap/ic_launcher"
+      android:roundIcon="@mipmap/ic_launcher_round"
+      android:allowBackup="false"
+      android:theme="@style/AppTheme"
+      android:usesCleartextTraffic="${usesCleartextTraffic}"
+      android:supportsRtl="true">
+      <!-- The Maps key the SDK's TrackRenderer / LiveTrackRenderer need. The VALUE is a manifest
+           placeholder filled from local.properties by app/build.gradle, so the key itself is never
+           committed. Without this element the placeholder plumbing does nothing: the key is read,
+           substituted into a placeholder nothing references, and the map comes up blank. -->
+      <meta-data
+        android:name="com.google.android.geo.API_KEY"
+        android:value="${MAPS_API_KEY}" />
+      <!-- Licence route A of two. The SDK reads this key at ready(); route B is
+           TrackerConfig.license passed from JS, which WINS when both are present. The key name is
+           `TrackerLicense`, matching iOS's Info.plist key. (SDK builds older than the
+           TrackIt -> Tracker rename read the legacy `TrackItLicense` name and want a `TRACKIT-`
+           prefixed token — if a release build reports licenseMissing with this entry populated,
+           that is the version to check.) Value is a manifest placeholder filled from
+           local.properties by app/build.gradle, so no token is ever committed. Debuggable installs
+           are waived by the SDK, so an empty value is fine in development. -->
+      <meta-data
+        android:name="TrackerLicense"
+        android:value="${TRACKER_LICENSE}" />
+      <activity
+        android:name=".MainActivity"
+        android:label="@string/app_name"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+        android:launchMode="singleTask"
+        android:windowSoftInputMode="adjustResize"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity>
+    </application>
+</manifest>

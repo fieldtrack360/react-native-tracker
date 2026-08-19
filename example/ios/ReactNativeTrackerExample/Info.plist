@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.fieldtrack360.tracker.backstop</string>
+		<string>com.fieldtrack360.tracker.sync</string>
+	</array>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>Tracker-RN</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleSignature</key>
+	<string>????</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<false/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Tracker needs background location to keep recording a trip when the app is not in the foreground.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Tracker needs your location to record trips.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Tracker uses motion activity to tell moving from stopped and save battery.</string>
+	<key>RCTNewArchEnabled</key>
+	<true/>
+	<key>TrackerLicense</key>
+	<string>TRACKER-eyJhbHNvIjpbImNvbS5maWVsZHRyYWNrMzYwLnRyYWNrZXIucm5zYW1wbGUuZGV2IiwiY29tLmZpZWxkdHJhY2szNjAudHJhY2tlci5ybnNhbXBsZS5zdGFnaW5nIl0sImlzc3VlZCI6IjIwMjYtMDgtMTgiLCJraWQiOjEsImxpY2Vuc2VlIjoiRGV2c3RyZWUiLCJwcmltYXJ5IjoiY29tLmZpZWxkdHJhY2szNjAudHJhY2tlci5ybnNhbXBsZSIsInYiOjF9.bfwvAhqZGs_wp5JzCDOlGcUGe7NWLLlgQn6nI7vsCYlleeJES_-zqv6NXe-gWjoGKY8ke089wHpwDbf3W6jgAQ</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>processing</string>
+	</array>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<string>arm64</string>
+	</array>
+	<key>UISupportedInterfaceOrientations</key>
+	<array>
+		<string>UIInterfaceOrientationPortrait</string>
+	</array>
+	<key>UISupportedInterfaceOrientations~ipad</key>
+	<array>
+		<string>UIInterfaceOrientationLandscapeLeft</string>
+		<string>UIInterfaceOrientationLandscapeRight</string>
+		<string>UIInterfaceOrientationPortrait</string>
+		<string>UIInterfaceOrientationPortraitUpsideDown</string>
+	</array>
+	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+</dict>
+</plist>

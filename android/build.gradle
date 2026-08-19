@@ -1,0 +1,57 @@
+import groovy.json.JsonSlurper
+
+buildscript {
+  ext.Tracker = [
+    kotlinVersion: "2.4.10",
+    minSdkVersion: 26,
+    compileSdkVersion: 37
+  ]
+
+  ext.getExtOrDefault = { prop ->
+    if (rootProject.ext.has(prop)) {
+      return rootProject.ext.get(prop)
+    }
+    return Tracker[prop]
+  }
+
+  repositories {
+    google()
+    mavenCentral()
+  }
+
+  dependencies {
+    classpath "com.android.tools.build:gradle:8.13.0"
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${getExtOrDefault('kotlinVersion')}"
+  }
+}
+
+apply plugin: "com.android.library"
+apply plugin: "kotlin-android"
+apply plugin: "com.facebook.react"
+
+// §4.1 — one place to bump the SDK version. Read from package.json at configure time so the
+// pin lives with the rest of the package metadata, not duplicated in Gradle.
+def packageJson = new JsonSlurper().parseText(file("${projectDir}/../package.json").text)
+def trackerAndroidVersion = packageJson.tracker.android
+
+android {
+  namespace "com.fieldtrack360.tracker"
+
+  compileSdkVersion getExtOrDefault("compileSdkVersion")
+
+  defaultConfig {
+    minSdkVersion getExtOrDefault("minSdkVersion")
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation "com.facebook.react:react-android"
+  implementation "com.github.fieldtrack360:fieldtrack:${trackerAndroidVersion}"
+  implementation "com.squareup.okhttp3:okhttp:5.4.0"
+  implementation "com.google.android.gms:play-services-maps:20.0.0"
+}

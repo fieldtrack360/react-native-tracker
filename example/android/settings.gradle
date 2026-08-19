@@ -1,0 +1,35 @@
+pluginManagement {
+    includeBuild(
+        new File(
+            ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"]
+                .execute(null, rootDir).text.trim()
+        ).getParentFile().absolutePath
+    )
+}
+plugins { id("com.facebook.react.settings") }
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+        maven {
+            url 'https://jitpack.io'
+        }
+    }
+}
+
+rootProject.name = 'com.fieldtrack360.tracker.rnsample'
+include ':app'
+
+// The SECOND include is not a duplicate: the one in `pluginManagement` makes the settings plugin
+// resolvable, this one substitutes the buildscript classpath dependencies the root build.gradle
+// declares WITHOUT versions (`com.android.tools.build:gradle`, `react-native-gradle-plugin`,
+// `kotlin-gradle-plugin`). Drop it and Gradle reports `Could not find …:gradle:` with an empty
+// version, which reads like a repository problem and is not one.
+includeBuild(
+    new File(
+        ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"]
+            .execute(null, rootDir).text.trim()
+    ).getParentFile().absolutePath
+)
