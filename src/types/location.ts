@@ -51,6 +51,18 @@ export type TrackPoint = {
   acceptReason: string;
   /** iOS-only fields. */
   ios?: { isMock?: boolean; isCharging?: boolean; isSignificantStop?: boolean };
+  /** Android-only fields. */
+  android?: {
+    /** Bitmask of every integrity signal observed when this point was captured, `warn` and
+     *  `block` alike, in the frozen bit order on `IntegritySignal`. Uploaded by the sync module
+     *  as `integrity_flags`.
+     *
+     *  `0` is ambiguous by design: it is what a clean device, a debuggable build (layer waived)
+     *  and a host with the layer disabled all report. Tell those apart by the client version,
+     *  never by this number alone. Treat it as advisory input to a server-side rule — a process
+     *  that has already been hooked can patch the code that produces it. */
+    integrityFlags?: number;
+  };
 };
 
 export type TrackSession = {

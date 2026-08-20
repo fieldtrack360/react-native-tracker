@@ -77,10 +77,10 @@ function subscribeStream<T>(
   };
 }
 
-// the 19-case event union. Payload is the wire event object { type, ... }. Five cases never fire
+// the 21-case event union. Payload is the wire event object { type, ... }. Seven cases never fire
 // on one platform (geofenceDwell/licenseDeactivated/trackingGap = iOS only;
-// geofenceAdded/geofenceRemoved = Android only) — a case absent on a platform simply never
-// arrives; do not build a liveness assumption on it.
+// geofenceAdded/geofenceRemoved/integrityChange/licenseChecked = Android only) — a case absent on
+// a platform simply never arrives; do not build a liveness assumption on it.
 export function onTrackerEvent(cb: (event: TrackerEvent) => void): () => void {
   return subscribeStream('events', undefined, (p) => p as TrackerEvent, cb);
 }

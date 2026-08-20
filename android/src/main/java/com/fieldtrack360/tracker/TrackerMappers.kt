@@ -3,6 +3,7 @@ package com.fieldtrack360.tracker
 import com.field360.tracker.RawFix
 import com.field360.tracker.RawPoint
 import com.field360.tracker.domain.model.ErrorCode
+import com.field360.tracker.domain.model.LicenseInfo
 import com.field360.tracker.domain.model.LocationAccuracy
 import com.field360.tracker.domain.model.PermissionTier
 import com.field360.tracker.domain.model.ProviderState
@@ -28,6 +29,7 @@ import com.field360.traker.geo.plot.model.TrackStats
 // fields but no import line anywhere, and BatteryInfo sits in the same "Battery and sensors"
 // section as DeviceSensors — hence `.motion`. If it does not resolve, try `.domain.model`.
 import com.field360.tracker.domain.model.BatteryInfo
+import com.field360.tracker.integrity.IntegrityReport
 import com.field360.tracker.motion.DeviceSensors
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.ReadableMap
@@ -136,6 +138,83 @@ object TrackerMappers {
     putBoolean("isLow", b.isLow)
   }
 
+  // ---- Device integrity (Android-only) ----
+
+  // IntegrityReport → wire. Signal and policy enums are SCREAMING_SNAKE → lower camel like every
+  // other enum here. `waived` is carried across verbatim and MUST NOT be collapsed into an empty
+  // findings list: on a debuggable build nothing was probed, and "no findings" would read as
+  // "clean" when the honest answer is "not evaluated". `flags` is the same bitmask stamped on
+  // every stored point and uploaded by the sync module.
+  fun integrityReportMap(r: IntegrityReport): WritableMap = Arguments.createMap().apply {
+    putDouble("evaluatedAtMs", r.evaluatedAtMs.toDouble())
+    putBoolean("waived", r.waived)
+    putBoolean("blocked", r.blocked)
+    putInt("flags", r.flags)
+    putArray("findings", Arguments.createArray().apply {
+      r.findings.forEach { finding ->
+        pushMap(Arguments.createMap().apply {
+          putString("signal", screamingSnakeToLowerCamel(finding.signal.name))
+          putString("policy", screamingSnakeToLowerCamel(finding.policy.name))
+          putString("detail", finding.detail)
+          putInt("confidence", finding.confidence)
+        })
+      }
+    })
+    putArray("blockingSignals", Arguments.createArray().apply {
+      r.blockingSignals.forEach { pushString(screamingSnakeToLowerCamel(it.name)) }
+    })
+  }
+
+  // IntegrityReport → JSON. androidIntegrity()/androidCheckIntegrity() cross as JSON strings
+  // (findings is unbounded), so the report is built twice in two shapes rather than converting a
+  // WritableMap — the event path needs the map, the promise path needs the string.
+  fun integrityReportJson(r: IntegrityReport): JSONObject = JSONObject().apply {
+    put("evaluatedAtMs", r.evaluatedAtMs)
+    put("waived", r.waived)
+    put("blocked", r.blocked)
+    put("flags", r.flags)
+    put("findings", JSONArray().apply {
+      r.findings.forEach { finding ->
+        put(JSONObject().apply {
+          put("signal", screamingSnakeToLowerCamel(finding.signal.name))
+          put("policy", screamingSnakeToLowerCamel(finding.policy.name))
+          put("detail", finding.detail)
+          put("confidence", finding.confidence)
+        })
+      }
+    })
+    put("blockingSignals", JSONArray().apply {
+      r.blockingSignals.forEach { put(screamingSnakeToLowerCamel(it.name)) }
+    })
+  }
+
+  // ---- Online licence check (Android v1.0.1-alpha-08+) ----
+
+  // LicenseInfo → wire. `status` is the closed LicenseStatus enum normalized to lower camel
+  // (UNKNOWN_KEY → unknownKey). `checkedAt` is the server's own ISO-8601 string, passed through
+  // verbatim — reparsing it here would substitute the device clock for the server's, which is the
+  // one clock this value exists to be independent of. `reason` is null when the server sent none.
+  fun licenseInfoMap(i: LicenseInfo): WritableMap = Arguments.createMap().apply {
+    putString("status", screamingSnakeToLowerCamel(i.status.name))
+    putBoolean("valid", i.valid)
+    putString("packageName", i.packageName)
+    putString("checkedAt", i.checkedAt)
+    putDouble("ttlSeconds", i.ttlSeconds.toDouble())
+    val reason = i.reason
+    if (reason != null) putString("reason", reason) else putNull("reason")
+    putBoolean("fromCache", i.fromCache)
+  }
+
+  fun licenseInfoJson(i: LicenseInfo): JSONObject = JSONObject().apply {
+    put("status", screamingSnakeToLowerCamel(i.status.name))
+    put("valid", i.valid)
+    put("packageName", i.packageName)
+    put("checkedAt", i.checkedAt)
+    put("ttlSeconds", i.ttlSeconds)
+    put("reason", i.reason ?: JSONObject.NULL)
+    put("fromCache", i.fromCache)
+  }
+
   fun sensorsMap(s: DeviceSensors): WritableMap = Arguments.createMap().apply {
     putString("motionQuality", screamingSnakeToLowerCamel(s.motionQuality.name))
     putMap("android", Arguments.createMap().apply {
@@ -200,6 +279,9 @@ object TrackerMappers {
   // NOTE: Android natively carries isMock/isCharging on TrackPoint, but the wire TrackPoint shape
   // (src/types) namespaces these under `ios?` only (classifies them iOS-only) — there is no
   // Android home for them, so they are intentionally dropped here (see subagent notes).
+  // `integrityFlags` DOES have a home (`android.integrityFlags`) and is carried across: it is the
+  // bitmask the sync module uploads as `integrity_flags`, so dropping it would leave the host
+  // unable to explain a row its own backend can see.
   fun trackPointJson(p: TrackPoint): JSONObject = JSONObject().apply {
     put("id", p.id)
     put("uuid", p.uuid)
@@ -224,6 +306,7 @@ object TrackerMappers {
     p.batteryPct?.let { put("batteryPct", it) }
     p.extras?.let { put("extras", it) }
     put("acceptReason", p.acceptReason)
+    put("android", JSONObject().apply { put("integrityFlags", p.integrityFlags) })
   }
 
   // ---- RawFix (getRawFixes — JSON string) ----
@@ -526,6 +609,17 @@ object TrackerMappers {
       is TrackerEvent.BatteryChange -> {
         putString("type", "batteryChange")
         putMap("battery", batteryMap(e.battery))
+      }
+      // Android-only; no iOS twin. Emitted on a CHANGE to the flag set, not per evaluation.
+      is TrackerEvent.IntegrityChange -> {
+        putString("type", "integrityChange")
+        putMap("report", integrityReportMap(e.report))
+      }
+      // Android-only (v1.0.1-alpha-08+). The iOS-only `licenseDeactivated` is a different signal:
+      // this one fires on every verified check including ACTIVE.
+      is TrackerEvent.LicenseChecked -> {
+        putString("type", "licenseChecked")
+        putMap("info", licenseInfoMap(e.info))
       }
       else -> {
         putString("type", "diagnostic")

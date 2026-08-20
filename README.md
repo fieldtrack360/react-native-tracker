@@ -193,10 +193,10 @@ identifiers (a mismatch is a launch-window exception, not a degraded backstop):
     <string>com.fieldtrack360.tracker.backstop</string>
     <string>com.fieldtrack360.tracker.sync</string>
 </array>
-
-<key>TrackerLicense</key>
-<string>YOUR_IOS_LICENSE_TOKEN</string>
 ```
+
+The licence token is **not** an `Info.plist` entry any more — pass it via
+`Tracker.ready({ license })` (see [Licensing](#licensing)).
 
 **3 — Podfile: platform floor and deployment-target gate.** `s.platforms` alone only hard-fails a
 *clean* install; an incremental install merely warns, and then dyld cannot load a framework whose
@@ -240,8 +240,6 @@ survives a prebuild. It performs exactly the manual steps and nothing more.
   "expo": {
     "plugins": [
       ["@fieldtrack360/react-native-tracker", {
-        "iosLicense": "YOUR_TRACKER_LICENSE_TOKEN",
-        "androidLicense": "YOUR_TRACKER_LICENSE_TOKEN",
         "androidMapsApiKey": "YOUR_MAPS_API_KEY" 
       }]
     ]
@@ -252,8 +250,6 @@ survives a prebuild. It performs exactly the manual steps and nothing more.
 | Plugin option | Type | Effect |
 |---|---|---|
 | `androidMapsApiKey` | `string` | `com.google.android.geo.API_KEY` manifest meta-data — needed only for the map components. Omitted → no meta-data written. |
-| `iosLicense` | `string` | `TrackerLicense` key in `Info.plist`. |
-| `androidLicense` | `string` | `TrackerLicense` manifest meta-data — the same key and token as `iosLicense` when your bundle id and applicationId match. |
 | `locationWhenInUse` | `string` | Overrides `NSLocationWhenInUseUsageDescription`. |
 | `locationAlways` | `string` | Overrides `NSLocationAlwaysAndWhenInUseUsageDescription`. |
 | `motionUsage` | `string` | Overrides `NSMotionUsageDescription`. |
@@ -270,94 +266,60 @@ Expo Go cannot load this SDK — use a development build.
 
 Tracker is licensed software. A token is **bundle-identifier-bound and verified offline** — it is
 not a network secret, but the Android SDK ships a `FieldTrackLicenseHardcoded` lint warning, so
-feed it from gitignored build properties rather than a literal in source.
+feed it from a gitignored file rather than a literal in source.
 
-There are **two ways to supply the token — the same two the native SDKs offer**, and this plugin
-exposes both unchanged:
+There is **one way to supply the token: `TrackerConfig.license`, applied at `ready()`** — the same
+call on both platforms.
 
-| | Option A — metadata | Option B — in code |
-|---|---|---|
-| iOS | `Info.plist` key `TrackerLicense` | `TrackerConfig.license`, applied at `ready()` |
-| Android | manifest `<meta-data android:name="TrackerLicense">` | `TrackerConfig.license`, applied at `ready()` |
-| React Native | build-time configuration (or the Expo plugin's `iosLicense` / `androidLicense`) | `Tracker.ready({ license: 'TRACKER-…' })` |
-
-The token name is **`TrackerLicense`** on both platforms — one name, one value, wherever you put
-it. **Option B wins over Option A** when both are set, on both platforms.
-
-Debug/simulator builds and debuggable Android installs are licence-**waived**, so either option can
-be left empty during development. Failures resolve as `licenseMissing`, `licenseInvalid`, or
-`licenseBundleMismatch`.
-
-> **If a release build reports `licenseMissing` with the metadata populated, check the SDK
-> version.** Android SDK builds older than the TrackIt → Tracker rename read the legacy meta-data
-> name `TrackItLicense` and expect a `TRACKIT-` prefixed token instead of `TRACKER-`; the licence
-> gate reports that as `"License token has the wrong prefix"`. On such a build, either move to a
-> renamed SDK or use Option B, which carries the token in the config rather than the manifest.
-
-### Option A — metadata
-
-**iOS** — `ios/<App>/Info.plist`:
-
-```xml
-<key>TrackerLicense</key>
-<string>TRACKER-eyJ…</string>
+```ts
+await Tracker.ready({ license: TRACKER_LICENSE, /* …the rest of your config */ });
 ```
 
-**Android** — `android/app/src/main/AndroidManifest.xml`, with the value coming from a gitignored
-file so the token is never committed:
+The native metadata routes are **no longer used by this plugin**. The Android integration guide
+withdrew the manifest `<meta-data>` route outright, and while iOS still reads an `Info.plist`
+`TrackerLicense` key, keeping a second mechanism alive on one platform only buys two places that
+can disagree. The plugin therefore exposes no `iosLicense` / `androidLicense` option: put the token
+in your config object and it reaches both SDKs through the same field.
 
-```xml
-<meta-data android:name="TrackerLicense" android:value="${TRACKER_LICENSE}" />
+> **Token prefix is worth checking once.** The Android integration guide for `v1.0.1-alpha-08`
+> documents a `TRACKIT-` prefixed token, while tokens issued under the TrackIt → Tracker rename are
+> `TRACKER-` prefixed. A mismatched prefix fails the offline gate with `licenseInvalid` and the
+> licence gate's own message `"License token has the wrong prefix"`. Debuggable installs are
+> waived, so this only ever appears on a release build — confirm the prefix with your vendor before
+> you cut one.
+
+Debug/simulator builds and debuggable Android installs are licence-**waived**, so the token can be
+absent entirely during development. Failures resolve as `licenseMissing`, `licenseInvalid`, or
+`licenseBundleMismatch` — and, on Android `v1.0.1-alpha-08`+, the online check adds `licenseRevoked`
+and `licenseExpired`, which **stop tracking** (see [Licence status on Android](#licence-status-on-android)).
+
+### Getting the token into JS
+
+Keep it out of source control and out of the JS source. The example app uses
+[`react-native-dotenv`](https://github.com/goatandsheep/react-native-dotenv) — a Babel plugin, so
+there is nothing to link on either platform:
+
+Create `example/.env` yourself — it is gitignored and there is no committed template, so nothing
+carrying a token exists in the repository to copy or to leak:
+
+```
+# example/.env
+TRACKER_LICENSE=TRACKER-eyJ…
 ```
 
-```groovy
-// android/app/build.gradle
-def trackerLicense = localProperties.getProperty("TRACKER_LICENSE", "")
-android {
-    defaultConfig {
-        manifestPlaceholders["TRACKER_LICENSE"] = trackerLicense
-        buildConfigField("String", "TRACKER_LICENSE", "\"$trackerLicense\"")   // for Option B
-    }
-}
+```js
+// babel.config.js
+plugins: [
+  ['module:react-native-dotenv', { moduleName: '@env', path: '.env', allowUndefined: true }],
+],
 ```
-
-Expo hosts set the same two values through the config plugin's `iosLicense` / `androidLicense`
-options instead of editing the generated files.
-
-### Option B — in code
-
-The native SDKs take the token through their config builder:
-
-```kotlin
-// Android SDK, natively
-Tracker.getInstance(context).ready(
-    TrackerConfig.builder()
-        .license(BuildConfig.TRACKER_LICENSE)
-        .build()
-)
-```
-
-```swift
-// iOS SDK, natively
-await Tracker.shared.ready(
-    TrackerConfig.builder()
-        .license("TRACKER-eyJ…")
-        .buildUnchecked()
-)
-```
-
-**That builder is exactly what `Tracker.ready(config)` is in this plugin.** There is no separate
-`builder()` object in JavaScript because there is nothing left to build: the object you pass *is*
-the builder's argument list. The bridge decodes it into the platform's own `TrackerConfig` — every
-key you set is applied, every key you omit keeps the SDK default — and hands it to the native
-`ready()` before the licence gate runs. One call, both platforms:
 
 ```ts
 import Tracker from '@fieldtrack360/react-native-tracker';
-import { TRACKER_LICENSE } from './config';   // from env / build config — not committed
+import { TRACKER_LICENSE } from '@env';
 
 const res = await Tracker.ready({
-  license: TRACKER_LICENSE,      // ← the builder's .license(…)
+  license: TRACKER_LICENSE,      // ← the native builder's .license(…)
   trackingMode: 'adaptive',      // ← every other builder field, same way
   intervalMs: 1000,
 });
@@ -368,18 +330,72 @@ if (!res.ok) {
 }
 ```
 
-Reading the token from native build config, so it is never in the JS bundle as a literal:
+`allowUndefined: true` matters: a clone with no `.env` must still build, because development is
+licence-waived anyway. The omission surfaces where it is actionable — as `licenseMissing` from
+`ready()` on a release build.
+
+This keeps the token out of the repository, not out of the binary: it is inlined into the JS bundle
+at build time and readable by anyone who unpacks your app. That is expected. The token is bound to
+your application id and signed, so a copy is worth nothing in another app — it is still worth what
+you paid, so do not commit it.
+
+### Licence status on Android
+
+Android `v1.0.1-alpha-08` added an **online** check alongside the offline gate: the SDK asks the
+licence server whether the token has been revoked or expired since it was issued. You wire nothing
+up for it.
+
+It runs shortly after every `ready()` and every 12 hours after that, never blocks `ready()`, and is
+**fail-open** — a server outage never stops a paying customer.
 
 ```ts
-// Android: BuildConfig.TRACKER_LICENSE, iOS: the Info.plist value — surfaced through
-// react-native-config, expo-constants, or your own tiny native constant module.
-import Config from 'react-native-config';
-await Tracker.ready({ license: Config.TRACKER_LICENSE });
+Tracker.onTrackerEvent((event) => {
+  if (event.type === 'licenseChecked') {
+    console.log(event.info.status, 'cached:', event.info.fromCache);
+  }
+});
+
+const info = await Tracker.android.licenseInfo();   // null = not checked yet, NOT a refusal
+const fresh = await Tracker.android.checkLicense(); // force a check now
 ```
 
-Validation differs from the native builders in one way worth knowing: a config the native
-`build()` would reject arrives here as a **rejected Promise with `invalidConfig`**, not a thrown
-builder error — the JSON is decoded and validated on the native side inside `ready()`.
+Branch on `status`, not on `valid` — `valid` is the server's coarse flag and collapses distinctions
+`status` keeps. Only `revoked` and `expired` stop tracking; `unknownKey`, `invalidKey`,
+`packageMismatch` and `sdkMismatch` are diagnostics about the vendor's ledger and tracking
+continues.
+
+**Silence is not success.** No event is emitted when the network failed or the response could not
+be verified, so the absence of a verdict tells you nothing — reading it as approval would mean
+reading a server outage as a valid licence.
+
+iOS has **no counterpart**: it ships only the offline gate plus its own `licenseDeactivated` event,
+which carries an untyped `status` string and fires only to deactivate. `Tracker.android.*` rejects
+`unsupportedOnPlatform` there. Do not write one handler assuming both.
+
+### Why there is no `builder()` in JavaScript
+
+The native SDKs take the token through a config builder:
+
+```kotlin
+// Android SDK, natively
+Tracker.getInstance(context).ready(
+    TrackerConfig.builder()
+        .license(BuildConfig.FIELDTRACK_LICENSE)
+        .build()
+)
+```
+
+**That builder is exactly what `Tracker.ready(config)` is in this plugin.** There is nothing left to
+build: the object you pass *is* the builder's argument list. The bridge decodes it into the
+platform's own `TrackerConfig` — every key you set is applied, every key you omit keeps the SDK
+default — and hands it to the native `ready()` before the licence gate runs.
+
+Validation differs from the native builders in one way worth knowing: a config the native `build()`
+would reject arrives here as a **rejected Promise with `invalidConfig`**, not a thrown builder
+error — the JSON is decoded and validated on the native side inside `ready()`.
+
+The `license` field is never persisted with the rest of the config. It is re-read on every
+`ready()`, so an updated token never loses to a stale one resurrected from disk.
 
 ### Development vs release
 
@@ -1405,10 +1421,10 @@ Fetch-script environment variables (all optional):
 
 | Symptom | Cause / fix |
 |---|---|
-| `licenseMissing` in a release build, fine in debug | Both platforms waive debug/debuggable builds. Supply the token by either route — `Tracker.ready({ license })` (Option B) or the `TrackerLicense` metadata (Option A) |
+| `licenseMissing` in a release build, fine in debug | Both platforms waive debug/debuggable builds. Supply the token via `Tracker.ready({ license })` — the only route |
 | `licenseBundleMismatch` | The token was issued for a different bundle id / application id (including `.dev` / `.staging` variants). Each app id needs its own token or an explicitly licensed alias |
 | `licenseInvalid` | Truncated or wrapped token, or one from a different key generation |
-| Android token set but ignored, or `"wrong prefix"` in the log | The SDK predates the TrackIt → Tracker rename: it reads `TrackItLicense` and wants a `TRACKIT-` prefixed token. Move to a renamed SDK, or pass the token via `Tracker.ready({ license })` |
+| `licenseInvalid`, or `"wrong prefix"` in the log | Prefix mismatch. The `v1.0.1-alpha-08` guide documents `TRACKIT-` tokens; post-rename tokens are `TRACKER-`. Confirm which your SDK build expects with your vendor |
 | `invalidConfig` rejection from `ready()` | The config object failed to decode natively — usually an out-of-range value or a field in the wrong namespace |
 | Config changes have no effect | `reset: false` was passed, so the persisted config won. Pass `reset: true` (the default) on a later launch |
 | `deviceIntegrityBlocked` (Android, release only) | The integrity layer refused the device/build; the in-flight session **ends** |

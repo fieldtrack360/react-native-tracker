@@ -146,6 +146,19 @@ class TrackerModule(reactContext: ReactApplicationContext) :
   override fun iosRequestTemporaryFullAccuracy(purposeKey: String, promise: Promise) =
     TrackerPermissions.iosOnly("iosRequestTemporaryFullAccuracy", promise)
 
+  // ── Device integrity + online licence (Android-only) ────────────────────────
+  override fun androidIntegrity(promise: Promise) =
+    Security.integrity(tracker, promise)
+
+  override fun androidCheckIntegrity(promise: Promise) =
+    Security.checkIntegrity(tracker, scope, promise)
+
+  override fun androidLicenseInfo(promise: Promise) =
+    Security.licenseInfo(tracker, scope, promise)
+
+  override fun androidCheckLicense(promise: Promise) =
+    Security.checkLicense(tracker, scope, promise)
+
   override fun androidHasActivityRecognition(promise: Promise) =
     TrackerPermissions.hasActivityRecognition(this, promise)
 

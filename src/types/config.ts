@@ -5,6 +5,7 @@
 import type {
   AccuracyProfile,
   DesiredAccuracy,
+  IntegrityPolicy,
   LocationProviderType,
   MockPolicy,
   TrackingMode,
@@ -116,5 +117,43 @@ export type TrackerConfig = {
     notificationChannelId?: string;
     notificationChannelName?: string;
     notificationSmallIconResName?: string;
+
+    /** Device integrity. Android-only — iOS ships no counterpart, so this block has no `ios`
+     *  twin and is namespaced rather than flat.
+     *
+     *  Release-only: every probe is skipped and every policy here ignored when the host app is
+     *  debuggable, exactly as the licence check is waived there. You cannot exercise this layer
+     *  from a debug build, and there is nothing to remember to switch off for production.
+     *
+     *  The SDK ships lint rules that run in YOUR build and fail `assembleRelease`: weakening
+     *  `enabled`, `hooking` or `mockLocation` outside `src/debug/` is a fatal lint issue, not a
+     *  warning. Put any override in a debug source set. */
+    security?: {
+      /** Master switch for the whole layer. Default true. */
+      enabled?: boolean;
+      /** Frida/Xposed detection. Default `block`. */
+      hooking?: IntegrityPolicy;
+      /** A visible installed package holds the mock-location app-op. Default `block`.
+       *  Setting this to `block` FORCES `mockLocationPolicy` to `reject` — the SDK refuses to
+       *  leave the two contradicting each other. */
+      mockLocation?: IntegrityPolicy;
+      /** A non-system accessibility service is enabled. Default `warn`, deliberately:
+       *  accessibility services are also how blind and motor-impaired users operate a phone, and
+       *  blocking on them locks those users out of your app. Services in the system image never
+       *  raise a finding. */
+      accessibility?: IntegrityPolicy;
+      /** Developer options / ADB enabled. Default `warn`. */
+      developerMode?: IntegrityPolicy;
+      /** Clock tampering — auto-time off, timezone mismatch, GNSS skew. Default `warn`. */
+      clock?: IntegrityPolicy;
+      /** Package names exempted from the accessibility signal, e.g. your own kiosk app. */
+      accessibilityAllowlist?: string[];
+      /** How far the system clock may disagree with GNSS UTC before `clockSkewed`. Default
+       *  120_000. */
+      maxClockSkewMs?: number;
+      /** Periodic re-evaluation inside the health loop. Default 900_000; `0` disables the
+       *  re-check, leaving only the evaluation at ready()/start(). */
+      recheckIntervalMs?: number;
+    };
   };
 };

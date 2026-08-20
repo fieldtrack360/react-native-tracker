@@ -84,3 +84,8 @@ ios/Frameworks/
 HANDOFF.md
 OPEN.md
 WIRE.md
+
+# Licence token. Bound to the application id and signed — a copy is worth nothing in another app,
+# but it is worth what you paid, so it never gets committed. Create example/.env by hand; the key
+# it must define is TRACKER_LICENSE (see the Licensing section of README.md).
+.env

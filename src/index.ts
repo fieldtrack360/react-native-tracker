@@ -8,6 +8,8 @@ import type {
   Geofence,
   GeofenceCrossing,
   GeofenceEventsQuery,
+  IntegrityReport,
+  LicenseInfo,
   MotionAuthorization,
   PermissionTier,
   PointQuery,
@@ -250,6 +252,25 @@ const ios = {
 
 // ── Android-only namespace — rejects unsupportedOnPlatform on iOS ─────────────────
 const android = {
+  /** The last device-integrity evaluation. Cheap — already in hand.
+   *
+   *  Check `waived` before rendering anything: on a debuggable build nothing was probed and the
+   *  empty `findings` is not a clean bill of health. */
+  integrity: async (): Promise<IntegrityReport> =>
+    JSON.parse(await TrackerNative.androidIntegrity()) as IntegrityReport,
+  /** Force a fresh evaluation. Reads /proc, the package list and a loopback socket — put it
+   *  behind a user action or a coarse timer, never in a render path. */
+  checkIntegrity: async (): Promise<IntegrityReport> =>
+    JSON.parse(await TrackerNative.androidCheckIntegrity()) as IntegrityReport,
+  /** The cached online-licence verdict, or null when no check has completed yet.
+   *
+   *  null is "not checked", NOT a refusal — do not gate your UI on it. Costs no network. */
+  licenseInfo: async (): Promise<LicenseInfo | null> =>
+    JSON.parse(await TrackerNative.androidLicenseInfo()) as LicenseInfo | null,
+  /** Force a licence check against the server now. Fail-open: resolves the cached verdict when
+   *  the network is down or the response could not be verified. */
+  checkLicense: async (): Promise<LicenseInfo | null> =>
+    JSON.parse(await TrackerNative.androidCheckLicense()) as LicenseInfo | null,
   hasActivityRecognition: (): Promise<boolean> =>
     TrackerNative.androidHasActivityRecognition(),
   requestActivityRecognition: (): Promise<boolean> =>

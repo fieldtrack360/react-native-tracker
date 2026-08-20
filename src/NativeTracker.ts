@@ -232,6 +232,17 @@ export interface Spec extends TurboModule {
     powerSource: string;
     isLow: boolean;
   }>;
+  // ── Device integrity + online licence (Android-only; iOS REJECTS unsupportedOnPlatform) ──────
+  // Both cross as JSON strings: IntegrityReport carries an unbounded findings[] and LicenseInfo
+  // has a nullable `reason`, neither of which is worth pinning into the codegen surface.
+  // androidIntegrity() is the last evaluation, already in hand and cheap; androidCheckIntegrity()
+  // forces a fresh one and reads /proc, the package list and a loopback socket, so it is NOT a
+  // per-frame call. androidLicenseInfo() resolves "null" when no check has completed yet —
+  // that is "not checked", not a refusal.
+  androidIntegrity(): Promise<string>;
+  androidCheckIntegrity(): Promise<string>;
+  androidLicenseInfo(): Promise<string>;
+  androidCheckLicense(): Promise<string>;
   androidHasActivityRecognition(): Promise<boolean>;
   androidRequestActivityRecognition(): Promise<boolean>;
   androidHasNotificationPermission(): Promise<boolean>;

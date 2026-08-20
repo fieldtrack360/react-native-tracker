@@ -46,8 +46,6 @@
 	<string>Tracker uses motion activity to tell moving from stopped and save battery.</string>
 	<key>RCTNewArchEnabled</key>
 	<true/>
-	<key>TrackerLicense</key>
-	<string>TRACKER-eyJhbHNvIjpbImNvbS5maWVsZHRyYWNrMzYwLnRyYWNrZXIucm5zYW1wbGUuZGV2IiwiY29tLmZpZWxkdHJhY2szNjAudHJhY2tlci5ybnNhbXBsZS5zdGFnaW5nIl0sImlzc3VlZCI6IjIwMjYtMDgtMTgiLCJraWQiOjEsImxpY2Vuc2VlIjoiRGV2c3RyZWUiLCJwcmltYXJ5IjoiY29tLmZpZWxkdHJhY2szNjAudHJhY2tlci5ybnNhbXBsZSIsInYiOjF9.bfwvAhqZGs_wp5JzCDOlGcUGe7NWLLlgQn6nI7vsCYlleeJES_-zqv6NXe-gWjoGKY8ke089wHpwDbf3W6jgAQ</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

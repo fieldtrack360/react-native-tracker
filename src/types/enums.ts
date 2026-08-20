@@ -32,6 +32,41 @@ export type MotionAuthorization =
 export type LocationProviderType =
   'fused' | 'gpsOnly' | 'networkOnly' | 'passive';
 
+/** Android only — the device-integrity layer. What the SDK does when a signal fires: report
+ *  nothing, report and stamp the point, or additionally refuse ready()/start() and end an
+ *  in-flight session. */
+export type IntegrityPolicy = 'allow' | 'warn' | 'block';
+
+/** Android only — the ten integrity signals, in the frozen bit order used by
+ *  `TrackPoint.android.integrityFlags` (accessibilityServiceActive = 1, developerModeEnabled = 2,
+ *  adbEnabled = 4, hookingFrameworkDetected = 8, debuggerAttached = 16, autoTimeDisabled = 32,
+ *  timezoneMismatch = 64, mockLocationAppSelected = 128, mockLocationFix = 256,
+ *  clockSkewed = 512). */
+export type IntegritySignal =
+  | 'accessibilityServiceActive'
+  | 'developerModeEnabled'
+  | 'adbEnabled'
+  | 'hookingFrameworkDetected'
+  | 'debuggerAttached'
+  | 'autoTimeDisabled'
+  | 'timezoneMismatch'
+  | 'mockLocationAppSelected'
+  | 'mockLocationFix'
+  | 'clockSkewed';
+
+/** Android only (v1.0.1-alpha-08+) — the online licence verdict. `unrecognised` is what the SDK
+ *  reports for a status string it does not know, so a newer server never breaks an older client.
+ *  iOS has no equivalent; its `licenseDeactivated` event carries an untyped `status` string. */
+export type LicenseStatus =
+  | 'active'
+  | 'revoked'
+  | 'expired'
+  | 'unknownKey'
+  | 'invalidKey'
+  | 'packageMismatch'
+  | 'sdkMismatch'
+  | 'unrecognised';
+
 /** The charger the device is on, from `BatteryInfo.powerSource`; `unknown` is the SDK default
  *  and also what a device reports when it cannot tell. `none` means "on battery", which is NOT
  *  the same as `unknown`. Both platforms, but iOS never reports `ac`, `usb` or `wireless` — a

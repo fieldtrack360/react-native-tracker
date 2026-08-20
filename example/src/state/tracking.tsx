@@ -25,6 +25,7 @@ import Tracker, {
   type TrackerEvent,
   type TrackSession,
 } from '@fieldtrack360/react-native-tracker';
+import { TRACKER_LICENSE } from '@env';
 import { CaptureLog } from './captureLog';
 
 // The app's core state: the SDK's event stream on one side, the five tabs on the other — the port
@@ -630,6 +631,17 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       // they are diagnostics, not production behaviour. The sample turns them on because the sample
       // exists to diagnose: layers 1 and 2 of the three-layer reading have no other source.
       const result = await Tracker.ready({
+        // The ONLY licence route, on both platforms. Neither the Android manifest meta-data nor the
+        // iOS Info.plist key is used any more: the Android integration guide withdrew the manifest
+        // route entirely, and `TrackerConfig.license` is honoured by both SDKs, so one mechanism in
+        // one place beats two that can disagree. The token is inlined from `example/.env` at build
+        // time (see babel.config.js) and `.env` is gitignored.
+        //
+        // `undefined` when no `.env` is present. That is fine here and NOT worth guarding: both
+        // SDKs waive the licence on a debuggable install, so development works with no token at
+        // all, and on a release build the omission surfaces as `licenseMissing` from this very
+        // call — which the `!result.ok` branch below already records.
+        license: TRACKER_LICENSE,
         trackingMode: 'adaptive',
         accuracy: { profile: 'balanced' },
         // 1 s, against a default of 60 s. The default is a battery figure and it is the right one

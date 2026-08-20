@@ -170,6 +170,45 @@ extension TrackerImpl {
     onReject("unsupportedOnPlatform", "androidRequestNotification() is Android-only; not available on iOS")
   }
 
+  // MARK: - Device integrity + online licence → Android-only, reject on iOS
+
+  // The device-integrity layer and the online licence check are Android-only surfaces. iOS 1.0.0
+  // has neither: TrackerCore ships the offline gate (licenseMissing/licenseInvalid/
+  // licenseBundleMismatch) plus its own `licenseDeactivated` event, and no integrity probes at
+  // all. These reject rather than resolving an empty report on purpose — a report claiming
+  // `waived: false, findings: []` would assert this device was probed and found clean, which is
+  // exactly the claim iOS cannot make.
+
+  /// android.integrity() — Android-only; rejects on iOS.
+  @objc(androidIntegrityOnResolve:onReject:)
+  public static func androidIntegrity(onResolve: @escaping (NSString) -> Void,
+                                      onReject: @escaping (NSString, NSString) -> Void) {
+    onReject("unsupportedOnPlatform", "androidIntegrity() is Android-only; not available on iOS")
+  }
+
+  /// android.checkIntegrity() — Android-only; rejects on iOS.
+  @objc(androidCheckIntegrityOnResolve:onReject:)
+  public static func androidCheckIntegrity(onResolve: @escaping (NSString) -> Void,
+                                           onReject: @escaping (NSString, NSString) -> Void) {
+    onReject("unsupportedOnPlatform", "androidCheckIntegrity() is Android-only; not available on iOS")
+  }
+
+  /// android.licenseInfo() — Android-only; rejects on iOS. The iOS licence surface is the
+  /// `licenseDeactivated` event, which carries an untyped status string and only fires to
+  /// deactivate; there is no cached verdict to read.
+  @objc(androidLicenseInfoOnResolve:onReject:)
+  public static func androidLicenseInfo(onResolve: @escaping (NSString) -> Void,
+                                        onReject: @escaping (NSString, NSString) -> Void) {
+    onReject("unsupportedOnPlatform", "androidLicenseInfo() is Android-only; not available on iOS")
+  }
+
+  /// android.checkLicense() — Android-only; rejects on iOS.
+  @objc(androidCheckLicenseOnResolve:onReject:)
+  public static func androidCheckLicense(onResolve: @escaping (NSString) -> Void,
+                                         onReject: @escaping (NSString, NSString) -> Void) {
+    onReject("unsupportedOnPlatform", "androidCheckLicense() is Android-only; not available on iOS")
+  }
+
   // MARK: - BackgroundRequest union → wire kind
 
   /// iOS `BackgroundRequest` (surface lines 52-58) → wire kind string. The associated `URL` on

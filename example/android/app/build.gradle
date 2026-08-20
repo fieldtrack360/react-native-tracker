@@ -48,14 +48,10 @@ if (localPropertiesFile.exists()) {
     localPropertiesFile.withInputStream { localProperties.load(it) }
 }
 
-/**
- * The Tracker licence token, read from the same gitignored local.properties. Licensing has two
- * routes and this is the manifest one (option A); the other is TrackerConfig.license passed to
- * ready() from JS (option B), which wins when both are present. Debuggable installs are waived by
- * the SDK, so an absent token is only a problem for a release build — hence no build-time warning
- * here, unlike MAPS_API_KEY.
- */
-def trackerLicense = localProperties.getProperty("TRACKER_LICENSE", "")
+// The licence token is deliberately NOT read here. It reaches the SDK through
+// TrackerConfig.license at ready(), inlined into JS from example/.env — one route on both
+// platforms. The Android integration guide withdrew the manifest meta-data route, so a token
+// plumbed through local.properties into BuildConfig would have nowhere to go.
 
 def mapsApiKey = localProperties.getProperty("MAPS_API_KEY", "")
 if (!mapsApiKey) {
@@ -161,8 +157,6 @@ android {
         // ${usesCleartextTraffic} placeholder, and replacing the map wholesale drops it.
         manifestPlaceholders["MAPS_API_KEY"] = mapsApiKey
         buildConfigField("String", "MAPS_API_KEY", "\"$mapsApiKey\"")
-        manifestPlaceholders["TRACKER_LICENSE"] = trackerLicense
-        buildConfigField("String", "TRACKER_LICENSE", "\"$trackerLicense\"")
     }
     signingConfigs {
         debug {

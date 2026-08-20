@@ -5,6 +5,7 @@ import com.field360.tracker.DesiredAccuracy
 import com.field360.tracker.LocationProviderType
 import com.field360.tracker.TrackerConfig
 import com.field360.tracker.TrackingMode
+import com.field360.tracker.integrity.IntegrityPolicy
 import com.field360.tracker.domain.model.PointQuery
 import com.field360.traker.geo.model.MockPolicy
 import com.field360.traker.geo.plot.model.Smoothing
@@ -382,6 +383,50 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
   }
   config = config.copy(service = service)
 
+  // ── security (device integrity) ──────────────────────────────────────────────
+  // Android-only, so it is namespaced under `android.security` rather than flat — there is no iOS
+  // counterpart for the wire shape to reconcile. Every key is optional and an absent one leaves
+  // the SDK default (which is `block` for hooking and mock-location, `warn` for the rest); an
+  // unrecognised policy string leaves the default rather than guessing, matching every other enum
+  // here. The layer is waived wholesale on a debuggable install, so none of this takes effect in
+  // development.
+  android?.optJSONObject("security")?.let { block ->
+    var security = config.security
+    if (block.has("enabled")) {
+      security = security.copy(enabled = block.optBoolean("enabled"))
+    }
+    if (block.has("hooking")) {
+      integrityPolicy(block.optString("hooking"))?.let { security = security.copy(hooking = it) }
+    }
+    if (block.has("mockLocation")) {
+      integrityPolicy(block.optString("mockLocation"))?.let { security = security.copy(mockLocation = it) }
+    }
+    if (block.has("accessibility")) {
+      integrityPolicy(block.optString("accessibility"))?.let { security = security.copy(accessibility = it) }
+    }
+    if (block.has("developerMode")) {
+      integrityPolicy(block.optString("developerMode"))?.let { security = security.copy(developerMode = it) }
+    }
+    if (block.has("clock")) {
+      integrityPolicy(block.optString("clock"))?.let { security = security.copy(clock = it) }
+    }
+    block.optJSONArray("accessibilityAllowlist")?.let { array ->
+      val allowlist = buildSet {
+        for (i in 0 until array.length()) {
+          array.optString(i).takeIf { it.isNotEmpty() }?.let { add(it) }
+        }
+      }
+      security = security.copy(accessibilityAllowlist = allowlist)
+    }
+    if (block.has("maxClockSkewMs")) {
+      security = security.copy(maxClockSkewMs = block.optLong("maxClockSkewMs"))
+    }
+    if (block.has("recheckIntervalMs")) {
+      security = security.copy(recheckIntervalMs = block.optLong("recheckIntervalMs"))
+    }
+    config = config.copy(security = security)
+  }
+
   // `ios` is read for nothing here by design — the namespace exists so the host never branches on
   // Platform.OS; the other platform's block is dead weight on this one.
   @Suppress("UNUSED_EXPRESSION")
@@ -418,6 +463,13 @@ private fun mockPolicy(value: String?): MockPolicy? = when (value) {
   "flag" -> MockPolicy.FLAG
   "reject" -> MockPolicy.REJECT
   "allow" -> MockPolicy.ALLOW
+  else -> null
+}
+
+private fun integrityPolicy(value: String?): IntegrityPolicy? = when (value) {
+  "allow" -> IntegrityPolicy.ALLOW
+  "warn" -> IntegrityPolicy.WARN
+  "block" -> IntegrityPolicy.BLOCK
   else -> null
 }
 

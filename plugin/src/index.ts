@@ -13,19 +13,10 @@ const SYNC_ID = 'com.fieldtrack360.tracker.sync';
 const MIN_SDK = 26;
 const COMPILE_SDK = 37;
 const MAPS_META = 'com.google.android.geo.API_KEY';
-// Matches the iOS Info.plist key
-const ANDROID_LICENSE_META = 'TrackerLicense';
 
 export type TrackerPluginProps = {
   /** Google Maps API key for the Android map components. */
   androidMapsApiKey?: string;
-  /** Optional iOS licence token, written to Info.plist as `TrackerLicense`. Omit to set the key
-   *  in your own Info.plist, or to pass the token via TrackerConfig.license from JS instead. */
-  iosLicense?: string;
-  /** Optional Android licence token, written to the manifest as `<meta-data
-   *  android:name="TrackerLicense">`. Omit to declare it yourself, or to pass the token via
-   *  TrackerConfig.license from JS instead. Debuggable builds are waived by the SDK. */
-  androidLicense?: string;
   /** Usage-description overrides. */
   locationWhenInUse?: string;
   locationAlways?: string;
@@ -78,7 +69,6 @@ const withTrackerInfoPlist: ConfigPlugin<TrackerPluginProps> = (
     ids.add(SYNC_ID);
     plist.BGTaskSchedulerPermittedIdentifiers = Array.from(ids);
 
-    if (props.iosLicense) plist.TrackerLicense = props.iosLicense;
     return c;
   });
 
@@ -195,30 +185,12 @@ const withTrackerMapsKey: ConfigPlugin<TrackerPluginProps> = (
   });
 };
 
-// ── Android: optional licence token as manifest meta-data ────────────────────────
-const withTrackerAndroidLicense: ConfigPlugin<TrackerPluginProps> = (
-  config,
-  props
-) => {
-  if (!props.androidLicense) return config;
-  return withAndroidManifest(config, (c) => {
-    const app = AndroidConfig.Manifest.getMainApplicationOrThrow(c.modResults);
-    AndroidConfig.Manifest.addMetaDataItemToMainApplication(
-      app,
-      ANDROID_LICENSE_META,
-      props.androidLicense!
-    );
-    return c;
-  });
-};
-
 const withTracker: ConfigPlugin<TrackerPluginProps> = (config, props = {}) => {
   config = withTrackerInfoPlist(config, props);
   config = withTrackerAppDelegate(config);
   config = withTrackerSettingsGradle(config);
   config = withTrackerSdkFloors(config);
   config = withTrackerMapsKey(config, props);
-  config = withTrackerAndroidLicense(config, props);
   return config;
 };
 

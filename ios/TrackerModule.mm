@@ -411,6 +411,34 @@ static NSDictionary *RCTTrackerTrackOptionsDict(JS::NativeTracker::TrackOptionsW
                               onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
+- (void)androidIntegrity:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject
+{
+  [TrackerImpl androidIntegrityOnResolve:^(NSString *v) { resolve(v); }
+                                onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+}
+
+- (void)androidCheckIntegrity:(RCTPromiseResolveBlock)resolve
+                       reject:(RCTPromiseRejectBlock)reject
+{
+  [TrackerImpl androidCheckIntegrityOnResolve:^(NSString *v) { resolve(v); }
+                                     onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+}
+
+- (void)androidLicenseInfo:(RCTPromiseResolveBlock)resolve
+                    reject:(RCTPromiseRejectBlock)reject
+{
+  [TrackerImpl androidLicenseInfoOnResolve:^(NSString *v) { resolve(v); }
+                                  onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+}
+
+- (void)androidCheckLicense:(RCTPromiseResolveBlock)resolve
+                     reject:(RCTPromiseRejectBlock)reject
+{
+  [TrackerImpl androidCheckLicenseOnResolve:^(NSString *v) { resolve(v); }
+                                   onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+}
+
 - (void)androidHasActivityRecognition:(RCTPromiseResolveBlock)resolve
                                reject:(RCTPromiseRejectBlock)reject
 {
