@@ -99,6 +99,21 @@ enum TrackerMappers {
     ]
   }
 
+  // MARK: - BatteryInfo (getBatteryInfo / onBatteryChange / batteryChange)
+
+  /// BatteryInfo → wire. `percent` / `isCharging` are optional in the SDK and stay nullable here:
+  /// null is "not known", NOT 0 % / not charging, so they cross as explicit NSNull rather than a
+  /// falsy default. `isLow` is the SDK's own derivation, carried across rather than recomputed so
+  /// the threshold stays owned by one side. `powerSource.rawValue` is already the wire vocabulary.
+  static func batteryDict(_ b: BatteryInfo) -> [String: Any] {
+    return [
+      "percent": b.percent ?? NSNull(),
+      "isCharging": b.isCharging ?? NSNull(),
+      "powerSource": b.powerSource.rawValue,
+      "isLow": b.isLow,
+    ]
+  }
+
   // MARK: - TrackFix (getCurrentLocation)
 
   /// TrackFix → wire. iOS field names already match the wire (`accuracyM`, `monotonicNanos`,
@@ -427,10 +442,11 @@ enum TrackerMappers {
 // Reuses the existing element mappers (trackPointDict / fixDecisionDict / providerStateDict /
 // sessionDict / crossingDict). No new imports needed (TrackerCore + TrackerGeo already imported).
 
-  // MARK: - TrackerEvent (the 16-case union; iOS emits 14 of them)
+  // MARK: - TrackerEvent (the 19-case union; iOS emits 17 of them)
 
   /// TrackerEvent → wire discriminated union { type, ...payload }. iOS has NO geofenceAdded /
-  /// geofenceRemoved (Android-only); it DOES emit geofenceDwell. iOS `ErrorCode` is String-backed and
+  /// geofenceRemoved (Android-only); it DOES emit geofenceDwell, licenseDeactivated and
+  /// trackingGap. iOS `ErrorCode` is String-backed and
   /// its rawValue is already the wire vocabulary (case `internalError` → "internalError"), so no
   /// rename is required here — unlike Android, where `INTERNAL` is remapped in `errorCodeWire`.
   static func eventDict(_ e: TrackerEvent) -> [String: Any] {
@@ -465,6 +481,20 @@ enum TrackerMappers {
       return ["type": "geofenceExit", "crossing": crossingDict(ev)]
     case .geofenceDwell(let ev):
       return ["type": "geofenceDwell", "crossing": crossingDict(ev)]
+    case .batteryChange(let b):
+      return ["type": "batteryChange", "battery": batteryDict(b)]
+    case .licenseDeactivated(let status, let reason):
+      return ["type": "licenseDeactivated", "status": status, "reason": reason ?? NSNull()]
+    case .trackingGap(let durationSec, let distanceMeters):
+      // The unobserved span between a force-quit and the next stored point. Fires once, and only
+      // when the silence was >= 10 min AND resumed >= 250 m away.
+      return ["type": "trackingGap",
+              "durationSec": durationSec,
+              "distanceMeters": distanceMeters]
+    @unknown default:
+      // TrackerEvent is non-frozen: a newer SDK can add a case this build has never seen. Surface
+      // it as a diagnostic rather than dropping it — a host that logs diagnostics sees the name.
+      return ["type": "diagnostic", "message": "unhandled TrackerEvent: \(e)"]
     }
   }
 

@@ -67,7 +67,7 @@ object Diagnostics {
     }
   }
 
-  // android.getBatteryInfo() — synchronous on the facade; BatteryInfo → wire map. Needs no
+  // getBatteryInfo() — synchronous on the facade; BatteryInfo → wire map. Needs no
   // session, no permission and no ready(), so it is safe to call at any point in the lifecycle.
   fun getBatteryInfo(facade: Tracker, promise: Promise) {
     try {

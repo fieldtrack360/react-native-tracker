@@ -89,7 +89,7 @@ export type TrackingSnapshot = {
 
   provider?: ProviderState;
   sensors?: DeviceSensors;
-  /** Android-only. Undefined on iOS, where the facade exposes no battery reading at all. */
+  /** Undefined only when the read itself failed. */
   battery?: BatteryInfo;
 
   /** `selectedSessionId ?? currentSession()?.id`. THE SESSION EVERY DIAGNOSTIC TAB DESCRIBES. */
@@ -392,9 +392,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       record('SENSORS', `could not be probed — ${String(error)}`);
     }
     try {
-      // Android-only: rejects `unsupportedOnPlatform` on iOS, which is not a failure and must not
-      // be recorded as one — hence the platform-free catch that just leaves `battery` undefined.
-      facts.current.battery = await Tracker.android.getBatteryInfo();
+      facts.current.battery = await Tracker.getBatteryInfo();
     } catch {
       facts.current.battery = undefined;
     }

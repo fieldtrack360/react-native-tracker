@@ -106,7 +106,7 @@ class TrackerModule(reactContext: ReactApplicationContext) :
   override fun getSensors(promise: Promise) =
     Diagnostics.getSensors(tracker, promise)
 
-  override fun androidGetBatteryInfo(promise: Promise) =
+  override fun getBatteryInfo(promise: Promise) =
     Diagnostics.getBatteryInfo(tracker, promise)
 
   override fun iosExportFixture(sessionId: String, name: String, promise: Promise) =

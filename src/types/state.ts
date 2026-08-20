@@ -36,13 +36,15 @@ export type ProviderState = {
 
 // Union. The half for the other platform is absent, not `false` — "no pedometer" and
 // "we cannot tell" are different facts.
-/** Android-only. The same reading the SDK stamps on every stored point, so a host display
- *  and the uploaded rows cannot disagree.
+/** Both platforms. On Android this is the same reading the SDK stamps on every stored point, so
+ *  a host display and the uploaded rows cannot disagree; iOS `TrackPoint` carries no battery, so
+ *  there is nothing there to agree with.
  *
  *  `percent` and `isCharging` are nullable on purpose: null is "not known", never 0 % / not
  *  charging. Do not coalesce them to a falsy default — a `?? 0` here renders an unknown battery
- *  as a flat one. `isLow` is the SDK's own derivation (percent != null && percent <= 15), carried
- *  across rather than recomputed so the threshold stays owned by one side. */
+ *  as a flat one; a simulator and a device with battery monitoring off both report null. `isLow`
+ *  is the SDK's own derivation (percent != null && percent <= 15), carried across rather than
+ *  recomputed so the threshold stays owned by one side. */
 export type BatteryInfo = {
   percent: number | null;
   isCharging: boolean | null;

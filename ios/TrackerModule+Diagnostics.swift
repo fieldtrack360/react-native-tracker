@@ -153,11 +153,12 @@ extension TrackerImpl {
     )
   }
 
-  /// android.getBatteryInfo() — Android-only; rejects on iOS. The iOS facade exposes no
-  /// battery reading at all (TrackPoint carries none either), so there is nothing to shim.
-  @objc(androidGetBatteryInfoOnResolve:onReject:)
-  public static func androidGetBatteryInfo(onResolve: @escaping (NSDictionary) -> Void,
-                                           onReject: @escaping (NSString, NSString) -> Void) {
-    onReject("unsupportedOnPlatform", "androidGetBatteryInfo() is Android-only; not available on iOS")
+  /// getBatteryInfo() — `Tracker.shared.batteryInfo()` is synchronous on the facade; BatteryInfo →
+  /// wire dict. Needs no session, no permission and no ready(). iOS `TrackPoint` carries no battery
+  /// reading, so — unlike Android — this value has no stored counterpart to agree with.
+  @objc(getBatteryInfoOnResolve:onReject:)
+  public static func getBatteryInfo(onResolve: @escaping (NSDictionary) -> Void,
+                                    onReject: @escaping (NSString, NSString) -> Void) {
+    onResolve(TrackerMappers.batteryDict(Tracker.shared.batteryInfo()) as NSDictionary)
   }
 }

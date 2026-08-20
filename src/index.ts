@@ -47,6 +47,7 @@ export {
 export { TrackerSync } from './sync';
 
 import {
+  onBatteryChange,
   onLiveTrack,
   onPoints,
   onProviderStateChange,
@@ -188,6 +189,11 @@ export function offerFix(fix: TrackFix): Promise<void> {
 export function getSensors(): Promise<DeviceSensors> {
   return TrackerNative.getSensors() as Promise<DeviceSensors>;
 }
+/** batteryInfo(). Both platforms. A one-shot read — subscribe with onBatteryChange() for a
+ *  live value. */
+export function getBatteryInfo(): Promise<BatteryInfo> {
+  return TrackerNative.getBatteryInfo() as Promise<BatteryInfo>;
+}
 
 // ── Permissions ──────────────────────────────────────────────────────────────────
 const permissions = {
@@ -252,10 +258,6 @@ const android = {
     TrackerNative.androidHasNotificationPermission(),
   requestNotification: (): Promise<boolean> =>
     TrackerNative.androidRequestNotification(),
-  /** batteryInfo(). Android-only; rejects `unsupportedOnPlatform` on iOS. A one-shot read —
-   *  subscribe with onBatteryChange() for a live value. */
-  getBatteryInfo: (): Promise<BatteryInfo> =>
-    TrackerNative.androidGetBatteryInfo() as Promise<BatteryInfo>,
 };
 
 export const Tracker = {
@@ -281,11 +283,13 @@ export const Tracker = {
   getDecisions,
   offerFix,
   getSensors,
+  getBatteryInfo,
   onTrackerEvent,
   onLiveTrack,
   onPoints,
   onStateChange,
   onProviderStateChange,
+  onBatteryChange,
   permissions,
   geofences,
   ios,

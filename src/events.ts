@@ -77,10 +77,10 @@ function subscribeStream<T>(
   };
 }
 
-// the 17-case event union. Payload is the wire event object { type, ... }. Four cases never fire
-// on one platform (geofenceDwell = iOS only; geofenceAdded/geofenceRemoved/batteryChange = Android
-// only) — a case absent on a platform simply never arrives; do not build a liveness assumption on
-// it.
+// the 19-case event union. Payload is the wire event object { type, ... }. Five cases never fire
+// on one platform (geofenceDwell/licenseDeactivated/trackingGap = iOS only;
+// geofenceAdded/geofenceRemoved = Android only) — a case absent on a platform simply never
+// arrives; do not build a liveness assumption on it.
 export function onTrackerEvent(cb: (event: TrackerEvent) => void): () => void {
   return subscribeStream('events', undefined, (p) => p as TrackerEvent, cb);
 }
@@ -95,10 +95,9 @@ export function onLiveTrack(cb: (update: LiveTrackUpdate) => void): () => void {
   );
 }
 
-// batteryState() — Android-only StateFlow<BatteryInfo>; replays the current reading on attach,
-// then one value per transition. On iOS the native side rejects `unsupportedOnPlatform`, so the
-// returned unsubscribe is a no-op and `cb` never fires — the same shape every Android-only stream
-// has. `TrackerEvent.batteryChange` carries the same transitions if you are already on onTrackerEvent().
+// batteryState() — both platforms (Android StateFlow<BatteryInfo>, iOS AsyncStream<BatteryInfo>);
+// each replays the current reading on attach, then one value per transition.
+// `TrackerEvent.batteryChange` carries the same transitions if you are already on onTrackerEvent().
 export function onBatteryChange(
   cb: (battery: BatteryInfo) => void
 ): () => void {

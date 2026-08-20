@@ -404,11 +404,11 @@ static NSDictionary *RCTTrackerTrackOptionsDict(JS::NativeTracker::TrackOptionsW
                                                onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
-- (void)androidGetBatteryInfo:(RCTPromiseResolveBlock)resolve
-                       reject:(RCTPromiseRejectBlock)reject
+- (void)getBatteryInfo:(RCTPromiseResolveBlock)resolve
+                reject:(RCTPromiseRejectBlock)reject
 {
-  [TrackerImpl androidGetBatteryInfoOnResolve:^(NSDictionary *v) { resolve(v); }
-                                     onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+  [TrackerImpl getBatteryInfoOnResolve:^(NSDictionary *v) { resolve(v); }
+                              onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
 - (void)androidHasActivityRecognition:(RCTPromiseResolveBlock)resolve

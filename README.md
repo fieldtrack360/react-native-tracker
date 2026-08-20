@@ -943,6 +943,7 @@ availability is **both platforms**.
 | `getDecisions(sessionId?, limit?, offset?)` | `string`, `number`, `number` | `Promise<FixDecision[]>` | Gated by `config.persistDecisions` |
 | `offerFix(fix)` | `TrackFix` | `Promise<void>` | Injects a fix; does **not** bypass validation |
 | `getSensors()` | — | `Promise<DeviceSensors>` | |
+| `getBatteryInfo()` | — | `Promise<BatteryInfo>` | One-shot; `onBatteryChange` for a live value |
 
 ### `Tracker.permissions`
 
@@ -989,7 +990,6 @@ availability is **both platforms**.
 | `requestActivityRecognition()` | — | `Promise<boolean>` |
 | `hasNotificationPermission()` | — | `Promise<boolean>` |
 | `requestNotification()` | — | `Promise<boolean>` (no-op below Android 13) |
-| `getBatteryInfo()` | — | `Promise<BatteryInfo>` |
 
 ### Subscriptions
 
@@ -1000,12 +1000,12 @@ deliver the current value on subscribe.
 
 | Function | Callback | Notes |
 |---|---|---|
-| `onTrackerEvent(cb)` | `(event: TrackerEvent) => void` | The 17-case union below |
+| `onTrackerEvent(cb)` | `(event: TrackerEvent) => void` | The 19-case union below |
 | `onLiveTrack(cb)` | `(update: LiveTrackUpdate) => void` | Feed straight into `<LiveTrackMapView>` |
 | `onPoints(sessionId, cb)` | `(points: TrackPoint[]) => void` | Stored points for one session |
 | `onStateChange(cb)` | `(state: TrackerState) => void` | |
 | `onProviderStateChange(cb)` | `(state: ProviderState) => void` | |
-| `onBatteryChange(cb)` | `(battery: BatteryInfo) => void` | **Android only** — on iOS the callback never fires and the unsubscribe is a no-op |
+| `onBatteryChange(cb)` | `(battery: BatteryInfo) => void` | Both platforms |
 
 ```ts
 type TrackerEvent =
@@ -1025,7 +1025,9 @@ type TrackerEvent =
   | { type: 'geofenceDwell';      crossing: GeofenceCrossing }   // iOS only
   | { type: 'geofenceAdded';      geofenceId: string }           // Android only
   | { type: 'geofenceRemoved';    geofenceId: string }           // Android only
-  | { type: 'batteryChange';      battery: BatteryInfo };        // Android only
+  | { type: 'batteryChange';      battery: BatteryInfo }
+  | { type: 'licenseDeactivated'; status: string; reason: string | null }  // iOS only
+  | { type: 'trackingGap';        durationSec: number; distanceMeters: number };  // iOS only
 ```
 
 A case that is absent on a platform simply never arrives — do not build a liveness assumption on
@@ -1088,8 +1090,9 @@ type DeviceSensors = {
   android?: { accelerometer; gyroscope; magnetometer; significantMotion; stepDetector; stepCounter; barometer; rotationVector: boolean };
 };
 
-/** Android only. `percent` / `isCharging` are null when NOT KNOWN — never coalesce to 0 / false.
- *  `isLow` is the SDK's own derivation (percent != null && percent <= 15). */
+/** Both platforms. `percent` / `isCharging` are null when NOT KNOWN — never coalesce to 0 / false.
+ *  `isLow` is the SDK's own derivation (percent != null && percent <= 15). On Android it is the
+ *  same reading stamped on every stored point; iOS `TrackPoint` carries no battery at all. */
 type BatteryInfo = {
   percent: number | null; isCharging: boolean | null;
   powerSource: 'none' | 'ac' | 'usb' | 'wireless' | 'dock' | 'unknown'; isLow: boolean;
@@ -1166,9 +1169,9 @@ type SyncConfig = {
 `DesiredAccuracy` `'high'|'balanced'|'low'` · `AccuracyProfile` `'strict'|'balanced'|'relaxed'|'custom'` ·
 `LocationProviderType` `'fused'|'gpsOnly'|'networkOnly'|'passive'` (Android) ·
 `MotionQuality` `'full'|'degraded'|'poor'` · `MovementStatus` `'steady'|'moving'` ·
-`SegmentType` `'travel'|'stop'` · `Smoothing` `'none'|'spline'|'bezier'` ·
+`SegmentType` `'travel'|'stop'|'gap'` (`gap` iOS only) · `Smoothing` `'none'|'spline'|'bezier'` ·
 `CameraFollowMode` `'none'|'follow'|'followBearing'` ·
-`PowerSource` `'none'|'ac'|'usb'|'wireless'|'dock'|'unknown'` (Android).
+`PowerSource` `'none'|'ac'|'usb'|'wireless'|'dock'|'unknown'` (iOS never reports `ac`/`usb`/`wireless`).
 
 ### `TrackerConfig`
 
@@ -1424,7 +1427,7 @@ Fetch-script environment variables (all optional):
 | Symptom | Cause / fix |
 |---|---|
 | Everything returns `notReady` | `ready()` was never awaited, or it resolved `{ ok:false }` and the result was swallowed |
-| A subscription never fires | Either it is a platform-only stream (`onBatteryChange`, `geofenceDwell`, `geofenceAdded/Removed`, `TrackerSync.ios.onSyncEvent`), or the unsubscribe ran early — verify the effect's cleanup |
+| A subscription never fires | Either it is a platform-only stream (`geofenceDwell`, `geofenceAdded/Removed`, `TrackerSync.ios.onSyncEvent`), or the unsubscribe ran early — verify the effect's cleanup |
 | Geofence crossings are missing after a relaunch | Crossings delivered to a relaunched process never reach a live JS subscriber. Read `Tracker.geofences.getEvents()` at launch |
 | `geofenceLimitReached` | The usable cap is 19 |
 | `buildTrack` result looks short | The query page came back full — check `track.warnings` for the truncation notice and raise `limit` |
@@ -1444,10 +1447,10 @@ Stated, not discovered:
   authorization and a concurrent call share one `code`; only `message` distinguishes them. Do not
   treat it as "retry later".
 - **`ios.exportFixture`, `ios.changePace`, `ios.requestMotion`, `ios.getMotionAuthorization`,
-  `ios.requestTemporaryFullAccuracy` are iOS-only**; the whole `Tracker.android` namespace,
-  including `getBatteryInfo`, is Android-only.
-- **Geofence dwell (`dwellAfterMs`, `geofenceDwell`) is iOS-only**; `geofenceAdded` /
-  `geofenceRemoved` and `batteryChange` are Android-only. Setting `dwellAfterMs` or
+  `ios.requestTemporaryFullAccuracy` are iOS-only**; the whole `Tracker.android` namespace is
+  Android-only.
+- **Geofence dwell (`dwellAfterMs`, `geofenceDwell`), `licenseDeactivated` and `trackingGap` are
+  iOS-only**; `geofenceAdded` / `geofenceRemoved` are Android-only. Setting `dwellAfterMs` or
   `notifyOnEntry/Exit: false` on Android is refused with `invalidConfig`.
 - **Geofence crossings delivered to a relaunched process never reach a live JS subscriber** — read
   them from `Tracker.geofences.getEvents()`.

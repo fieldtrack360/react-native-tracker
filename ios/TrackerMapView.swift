@@ -101,6 +101,12 @@ enum TrackerMapReconstruct {
     if let v = (m["cameraPadding"] as? NSNumber)?.doubleValue { o.cameraPadding = CGFloat(v) }
     if let v = (m["twoPointCameraPadding"] as? NSNumber)?.doubleValue { o.twoPointCameraPadding = CGFloat(v) }
     if let v = (m["ongoingPulseSeconds"] as? NSNumber)?.doubleValue { o.ongoingPulseSeconds = v }
+    // Gap styling (SegmentType.gap — the unobserved span the renderer draws dashed and grey).
+    // gapColor is a Color and follows the same rule as every other colour here: SDK default.
+    if let v = (m["gapLineWidth"] as? NSNumber)?.doubleValue { o.gapLineWidth = CGFloat(v) }
+    if let v = m["gapDashLengths"] as? [NSNumber], !v.isEmpty {
+      o.gapDashLengths = v.map { CGFloat($0.doubleValue) }
+    }
     return o
   }
 

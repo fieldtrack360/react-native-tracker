@@ -13,6 +13,7 @@
 //   liveTrack():       AsyncStream<LiveTrackUpdate>          (TrackerCore)  capacity 1 — a frame is a replacement
 //   observePoints(_:): AsyncStream<[TrackPoint]>             (TrackerCore)
 //   providerState():   AsyncStream<ProviderState>            (TrackerCore)
+//   batteryState():    AsyncStream<BatteryInfo>              (TrackerCore)  replays on attach
 //   state:             @Observable TrackerState (@MainActor) (TrackerCore +) — Observation, not a stream
 import Foundation
 import Observation
@@ -82,14 +83,7 @@ extension TrackerImpl {
     case "observePoints": task = Task { await consumeObservePoints(id: id, sessionID: sessionID ?? "") }
     case "providerState": task = Task { await consumeProviderState(id: id) }
     case "state":         task = Task { await consumeState(id: id) }
-    case "battery":
-      // batteryState() is Android-only — iOS has no battery surface on the facade. Rejected by
-      // NAME rather than falling into the unknown-stream default, so a host gets
-      // `unsupportedOnPlatform` (a platform fact) instead of `invalidConfig` (a caller mistake).
-      _ = store.remove(id)
-      onReject("unsupportedOnPlatform" as NSString,
-               "the \"battery\" stream is Android-only; not available on iOS" as NSString)
-      return
+    case "battery":       task = Task { await consumeBattery(id: id) }
     default:
       _ = store.remove(id)
       onReject("invalidConfig" as NSString, "unknown stream: \(name)" as NSString)
@@ -123,7 +117,7 @@ extension TrackerImpl {
     EventSubscriptionStore.shared.emitter?(id, payload)
   }
 
-  /// events — the 16-case union (iOS emits 14 of them). Depth 64 / replay 0 is the native bus; the
+  /// events — the 19-case union (iOS emits 17 of them). Depth 64 / replay 0 is the native bus; the
   /// plain `for await` adds no buffer.
   private static func consumeEvents(id: Int) async {
     for await event in Tracker.shared.events() {
@@ -147,6 +141,15 @@ extension TrackerImpl {
       let arr = points.map { TrackerMappers.trackPointDict($0) }
       guard let data = try? JSONSerialization.data(withJSONObject: arr, options: []) else { continue }
       emit(id, String(decoding: data, as: UTF8.self) as NSString)
+    }
+  }
+
+  /// battery — batteryState() replays the current reading on attach, then one value per
+  /// transition; StateFlow-like, matching Android's collect().
+  private static func consumeBattery(id: Int) async {
+    for await battery in Tracker.shared.batteryState() {
+      if Task.isCancelled { return }
+      emit(id, TrackerMappers.batteryDict(battery) as NSDictionary)
     }
   }
 

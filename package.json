@@ -193,14 +193,14 @@
     "android": "v1.0.1-alpha-07",
     "ios": {
       "tag": "1.0.0",
-      "commit": "f18c4a6b6107a63c97f552a05b3f18703c6f73ad",
+      "commit": "e55ee0eebf7abb26bb44735e742706b72f150742",
       "checksumRule": "per XCFramework: sha256 over the manifest of every regular file under the framework, sorted by POSIX-relative path, each entry <relpath>\\0<sha256(file)>\\0 (see scripts/fetch-ios-frameworks.js digestXcframework)",
       "checksums": {
-        "TrackerGeo.xcframework": "1b59cc82ac0a859e2509158923f0cfd5b740788e181701801dcfd85913b6594f",
-        "TrackerCore.xcframework": "d377308d90caa47eb29d76a6f3baccba20951d414bfefd5905e1a99a1abd18d3",
-        "TrackerMaps.xcframework": "ac1e3e5004cfed48edbe6cd1085d67453a572f804bee36dd8881fb9c7c759c95",
-        "TrackerSnap.xcframework": "c26ab540d45c9e86cd765039272071664667818e74b9cf40c6720fc0cd307557",
-        "TrackerSync.xcframework": "f5e12b956ba6cd4989b85688134c6ee24e9dc0f9a799a0b5fd32e1cfb49c3809"
+        "TrackerGeo.xcframework": "2fc4788c123966cb70a600e604bcbaa41d25640615f4ef2abeec7d63632c63ce",
+        "TrackerCore.xcframework": "e58b71fa4cf2c0c011ec2940193f5284815dc0714e8540093f24319b73cc4e4f",
+        "TrackerMaps.xcframework": "3eb48e88a6a7d7b44dd742d72a25675c810e2bc74e1487a554a9f509a85e975a",
+        "TrackerSnap.xcframework": "bb64f589c4b5c548099e968b10a459f677e61f2ec495110d8fe804e4cf46d31c",
+        "TrackerSync.xcframework": "ff23da253e284eb9a928f67850375ef0e4d6622baa561750962601f600190bc9"
       }
     }
   }

@@ -222,11 +222,11 @@ export interface Spec extends TurboModule {
   iosRequestMotion(): Promise<string>;
   iosGetMotionAuthorization(): Promise<string>;
   iosRequestTemporaryFullAccuracy(purposeKey: string): Promise<string>;
-  // android.getBatteryInfo() — Android-only, rejects `unsupportedOnPlatform` on iOS. Typed as
-  // an object literal rather than reusing DeviceSensors' style because `percent`/`isCharging` are
-  // nullable. Needs no session, no permission and no ready(); it is a binder call, so treat it as a
-  // refresh-rate read and use the "battery" stream for a live display.
-  androidGetBatteryInfo(): Promise<{
+  // batteryInfo() — both platforms. Typed as an object literal rather than reusing DeviceSensors'
+  // style because `percent`/`isCharging` are nullable. Needs no session, no permission and no
+  // ready(); it is a cheap local read on both, so treat it as a refresh-rate read and use the
+  // "battery" stream for a live display.
+  getBatteryInfo(): Promise<{
     percent: number | null;
     isCharging: boolean | null;
     powerSource: string;
@@ -274,7 +274,8 @@ export interface Spec extends TurboModule {
   // starts ONE native Task/Job and resolves its id; unsubscribe(id) cancels exactly that task.
   // stream ∈ "events" | "liveTrack" | "observePoints" | "providerState" | "state" | "battery";
   // arg carries the sessionId for observePoints. Buffering owned natively, never widened.
-  // "battery" is Android-only (StateFlow<BatteryInfo>) and rejects `unsupportedOnPlatform` on iOS.
+  // "battery" is both platforms (Android StateFlow<BatteryInfo>, iOS batteryState() AsyncStream);
+  // each replays the current reading on attach, then one value per transition.
   addListener(eventName: string): void;
   removeListeners(count: number): void;
   subscribe(stream: string, arg?: string): Promise<number>;
