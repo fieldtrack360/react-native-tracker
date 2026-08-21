@@ -154,6 +154,16 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
   if (root.has("reset")) {
     config = config.copy(reset = root.optBoolean("reset"))
   }
+  // android.baseUrl — Android-only (iOS TrackerConfig has no counterpart), so it is namespaced on
+  // the wire even though it sits at the TOP level of the native config. Core never opens a socket;
+  // this exists solely so a relative SyncConfig.url resolves against it. An empty string would fail
+  // validate() ("not an absolute URL"), so a blank is treated as absent.
+  android?.let { block ->
+    if (block.has("baseUrl")) {
+      val baseUrl = block.optString("baseUrl").trim()
+      if (baseUrl.isNotEmpty()) config = config.copy(baseUrl = baseUrl)
+    }
+  }
 
   // ── geolocation ──────────────────────────────────────────────────────────
   var geolocation = config.geolocation

@@ -607,7 +607,10 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
           record('FENCE', `dwell ${event.crossing.geofenceId}`);
           break;
         case 'geofenceAdded':
-          record('FENCE', `added ${event.geofenceId}`);
+          record(
+            'FENCE',
+            `added ${event.geofence.id} @${event.geofence.radiusM}m`
+          );
           break;
         case 'geofenceRemoved':
           record('FENCE', `removed ${event.geofenceId}`);

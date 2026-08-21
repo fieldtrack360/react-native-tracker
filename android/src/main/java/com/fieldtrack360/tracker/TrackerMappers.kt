@@ -276,12 +276,13 @@ object TrackerMappers {
 
   // TrackPoint → wire. renames: elapsedRealtimeNanos → monotonicNanos, accuracy → accuracyM,
   // altitude → altitudeM, odometerMeters → odometerM. movementStatus/detectedActivity normalized.
-  // NOTE: Android natively carries isMock/isCharging on TrackPoint, but the wire TrackPoint shape
-  // (src/types) namespaces these under `ios?` only (classifies them iOS-only) — there is no
-  // Android home for them, so they are intentionally dropped here (see subagent notes).
-  // `integrityFlags` DOES have a home (`android.integrityFlags`) and is carried across: it is the
-  // bitmask the sync module uploads as `integrity_flags`, so dropping it would leave the host
-  // unable to explain a row its own backend can see.
+  // `isMock` and `isCharging` are SHARED wire fields (the guide documents both on the Android
+  // TrackPoint, and iOS carries both too), so they are emitted flat. They used to be dropped here
+  // because the wire type filed them under `ios?` — that was a misclassification and cost every
+  // Android host two columns of every stored point.
+  // `integrityFlags` sits under `android` and is carried across: it is the bitmask the sync module
+  // uploads as `integrity_flags`, so dropping it would leave the host unable to explain a row its
+  // own backend can see.
   fun trackPointJson(p: TrackPoint): JSONObject = JSONObject().apply {
     put("id", p.id)
     put("uuid", p.uuid)
@@ -304,6 +305,8 @@ object TrackerMappers {
     put("activityStartTimeMs", p.activityStartTimeMs)
     put("odometerM", p.odometerMeters)
     p.batteryPct?.let { put("batteryPct", it) }
+    p.isCharging?.let { put("isCharging", it) }
+    put("isMock", p.isMock)
     p.extras?.let { put("extras", it) }
     put("acceptReason", p.acceptReason)
     put("android", JSONObject().apply { put("integrityFlags", p.integrityFlags) })
@@ -311,7 +314,10 @@ object TrackerMappers {
 
   // ---- RawFix (getRawFixes — JSON string) ----
 
-  // RawFix → wire. Android carries only the shared six (accuracy → accuracyM); no `ios` block.
+  // RawFix → wire. Android carries the shared six (accuracy → accuracyM) plus `integrityFlags`;
+  // no `ios` block. integrityFlags is the bitmask as it stood when the fix was RECEIVED — distinct
+  // from TrackPoint's, which is stamped on acceptance. A fix the pipeline rejects never becomes a
+  // TrackPoint, so this is the only record of its integrity state.
   fun rawFixJson(f: RawFix): JSONObject = JSONObject().apply {
     put("timeMs", f.timeMs)
     put("latitude", f.latitude)
@@ -319,6 +325,7 @@ object TrackerMappers {
     put("accuracyM", f.accuracy.toDouble())
     put("bearingDeg", f.bearingDeg.toDouble())
     put("provider", f.provider)
+    put("android", JSONObject().apply { put("integrityFlags", f.integrityFlags) })
   }
 
   // ---- RawPoint (getRawPoints — JSON string) ----
@@ -535,8 +542,8 @@ object TrackerMappers {
 
   // ---- TrackerEvent (the 16-case union; Android emits 15 of them) ----
 
-  // TrackerEvent → wire discriminated union { type, ...payload }. Android has NO geofenceDwell; it
-  // DOES emit geofenceAdded/geofenceRemoved. GeofenceEntered/Exited carry the FENCE (not a crossing),
+  // TrackerEvent → wire discriminated union { type, ...payload }. Android has NO geofenceDwell;
+  // geofenceAdded/geofenceRemoved reach BOTH platforms now (iOS gained them in the 1.0.0 rebuild). GeofenceEntered/Exited carry the FENCE (not a crossing),
   // so a crossing is synthesised from the fence centre with NO timeMs. point/decision reuse
   // the existing JSONObject mappers, converted to WritableMap. `error` uses errorCode (INTERNAL →
   // internalError). The sealed interface is exhaustive; the else is a defensive fallback only.
@@ -600,7 +607,8 @@ object TrackerMappers {
       }
       is TrackerEvent.GeofenceAdded -> {
         putString("type", "geofenceAdded")
-        putString("geofenceId", e.geofence.id)
+        // The WHOLE fence, not just the id — `radiusM` is what the platform actually accepted.
+        putMap("geofence", geofenceMap(e.geofence))
       }
       is TrackerEvent.GeofenceRemoved -> {
         putString("type", "geofenceRemoved")

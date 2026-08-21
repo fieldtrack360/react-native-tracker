@@ -1,6 +1,7 @@
 // The event union. One subscription carries a 21-case discriminated union; typed so
-// an exhaustive `switch` is checkable. Seven cases never fire on one platform — documented so no
-// host builds a liveness assumption on a signal that will not arrive.
+// an exhaustive `switch` is checkable. Five cases never fire on one platform — documented so no
+// host builds a liveness assumption on a signal that will not arrive. (`geofenceAdded` /
+// `geofenceRemoved` USED to be two more; they reach iOS as of the 1.0.0 rebuild at b4afe5ba.)
 import type { ActivityType, MotionState } from './enums';
 import type { ErrorCode } from './errors';
 import type { FixDecision, TrackPoint } from './location';
@@ -11,7 +12,7 @@ import type {
   ProviderState,
 } from './state';
 import type { TrackSession } from './location';
-import type { GeofenceCrossing } from './geofence';
+import type { Geofence, GeofenceCrossing } from './geofence';
 
 export type TrackerEvent =
   | { type: 'location'; point: TrackPoint }
@@ -28,8 +29,16 @@ export type TrackerEvent =
   | { type: 'geofenceEnter'; crossing: GeofenceCrossing }
   | { type: 'geofenceExit'; crossing: GeofenceCrossing }
   | { type: 'geofenceDwell'; crossing: GeofenceCrossing } // iOS only
-  | { type: 'geofenceAdded'; geofenceId: string } // Android only
-  | { type: 'geofenceRemoved'; geofenceId: string } // Android only
+  // BOTH platforms — iOS since the 1.0.0 rebuild at commit b4afe5ba. `geofence` is the fence as
+  // it EXISTS, with the radius already clamped to what the OS will actually monitor, which is why
+  // the whole fence is carried rather than just the id: it is the only place the clamped value is
+  // reported back. Re-arming an existing id emits this again (the replacement is a new fence under
+  // the same name). On iOS it is emitted after CoreLocation acknowledges the region, so
+  // `geofences.list()` already sees it.
+  | { type: 'geofenceAdded'; geofence: Geofence }
+  // BOTH platforms. `removeAllGeofences` emits one of these PER fence, not one for the batch;
+  // removing an unknown id emits nothing.
+  | { type: 'geofenceRemoved'; geofenceId: string }
   | { type: 'batteryChange'; battery: BatteryInfo }
   | { type: 'licenseDeactivated'; status: string; reason: string | null } // iOS only
   // Android only. The device-integrity flag set CHANGED — this is a transition, not a per-check

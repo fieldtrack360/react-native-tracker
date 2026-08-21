@@ -1,15 +1,15 @@
 buildscript {
     ext {
-        buildToolsVersion = "37.0.0"
+        buildToolsVersion = "36.0.0"
         minSdkVersion = 26
-        compileSdkVersion = 37
+        compileSdkVersion = 36
         targetSdkVersion = 36
         ndkVersion = "27.1.12297006"
-        // 2.4.x, not React Native's 2.2.0 pin. The Tracker AAR is compiled with Kotlin 2.4
-        // metadata, and a 2.2 compiler cannot read it at all — every SDK type reports "was compiled
-        // with an incompatible version of Kotlin". RN pins 2.2.0 for its own plugin build; the app's
-        // compiler is the host's choice, and this host has to match its SDK.
-        kotlinVersion = "2.4.10"
+        // React Native 0.81's own baseline, and it is enough again. This host used to override
+        // to 2.4.10 because the Tracker AAR up to v1.0.1-alpha-08 carried Kotlin 2.4 metadata that
+        // a 2.2 compiler could not read at all. alpha-10 rebuilt the AARs at Kotlin 2.1.x metadata
+        // / compileSdk 36 / Java 11 bytecode precisely so an RN host needs no override.
+        kotlinVersion = "2.1.20"
     }
     repositories {
         google()

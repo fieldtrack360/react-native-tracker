@@ -47,10 +47,15 @@ export type TrackPoint = {
   activityStartTimeMs: number;
   odometerM: number;
   batteryPct?: number;
+  /** Both platforms. Null/absent is "not known", never "not charging". */
+  isCharging?: boolean;
+  /** Both platforms. Whether the platform flagged the underlying fix as mock. Present regardless
+   *  of `mockLocationPolicy`: under `flag` (the default) a mock fix is stored WITH this set. */
+  isMock?: boolean;
   extras?: string;
   acceptReason: string;
   /** iOS-only fields. */
-  ios?: { isMock?: boolean; isCharging?: boolean; isSignificantStop?: boolean };
+  ios?: { isSignificantStop?: boolean };
   /** Android-only fields. */
   android?: {
     /** Bitmask of every integrity signal observed when this point was captured, `warn` and
@@ -95,6 +100,13 @@ export type RawFix = {
   accuracyM: number;
   bearingDeg: number;
   provider: string;
+  android?: {
+    /** The device-integrity bitmask as it stood when this fix was RECEIVED, in the frozen bit
+     *  order on `IntegritySignal`. Distinct from `TrackPoint.android.integrityFlags`, which is
+     *  stamped when the point is accepted — a fix rejected by the pipeline has no TrackPoint, so
+     *  this is the only place its integrity state is recorded. */
+    integrityFlags?: number;
+  };
   ios?: {
     id: number;
     sessionId: string;

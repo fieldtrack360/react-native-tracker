@@ -178,13 +178,16 @@ export class CaptureLog {
       // Android-only, and worth a line of their own: the SDK confirming an arm or a removal is how
       // a tester tells "the fence never armed" from "the fence armed and never fired".
       case 'geofenceAdded':
-      case 'geofenceRemoved':
+        // radiusM is the clamped value the OS accepted, not what was asked for.
         this.append(
           stampedLine(
             'FENCE',
-            `${event.type === 'geofenceAdded' ? 'added' : 'removed'} id=${event.geofenceId}`
+            `added id=${event.geofence.id} radiusM=${event.geofence.radiusM}`
           )
         );
+        break;
+      case 'geofenceRemoved':
+        this.append(stampedLine('FENCE', `removed id=${event.geofenceId}`));
         break;
       case 'powerSaveChange':
         this.append(stampedLine('POWER', `lowPower=${event.enabled}`));

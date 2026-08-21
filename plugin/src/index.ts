@@ -11,7 +11,10 @@ import {
 const BACKSTOP_ID = 'com.fieldtrack360.tracker.backstop';
 const SYNC_ID = 'com.fieldtrack360.tracker.sync';
 const MIN_SDK = 26;
-const COMPILE_SDK = 37;
+// The SDK's stated floor, not a preference: v1.0.1-alpha-10 builds its AARs at compileSdk 36 and
+// asks for "36 or newer". This was 37 while alpha-08 required it. `raiseGradleExt` only ever raises,
+// so a host already above this keeps what it has.
+const COMPILE_SDK = 36;
 const MAPS_META = 'com.google.android.geo.API_KEY';
 
 export type TrackerPluginProps = {

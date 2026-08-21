@@ -142,8 +142,9 @@ enum TrackerMappers {
 
   // MARK: - TrackPoint (getPoints — JSON string)
 
-  /// TrackPoint → wire. `sessionID` → `sessionId`. `isMock`/`isCharging`/`isSignificantStop`
-  /// are iOS-only and namespaced under `ios`. `odometerM` already matches the wire.
+  /// TrackPoint → wire. `sessionID` → `sessionId`. `isMock` and `isCharging` are SHARED — the
+  /// Android `TrackPoint` carries both too — so they sit flat; only `isSignificantStop` is iOS-only
+  /// and stays namespaced under `ios`. `odometerM` already matches the wire.
   static func trackPointDict(_ p: TrackPoint) -> [String: Any] {
     var d: [String: Any] = [
       "id": p.id,
@@ -170,12 +171,9 @@ enum TrackerMappers {
     if let a = p.detectedActivity { d["detectedActivity"] = a.rawValue }
     if let v = p.batteryPct { d["batteryPct"] = v }
     if let v = p.extras { d["extras"] = v }
-    var ios: [String: Any] = [
-      "isMock": p.isMock,
-      "isSignificantStop": p.isSignificantStop,
-    ]
-    if let v = p.isCharging { ios["isCharging"] = v }
-    d["ios"] = ios
+    d["isMock"] = p.isMock
+    if let v = p.isCharging { d["isCharging"] = v }
+    d["ios"] = ["isSignificantStop": p.isSignificantStop]
     return d
   }
 
@@ -442,13 +440,16 @@ enum TrackerMappers {
 // Reuses the existing element mappers (trackPointDict / fixDecisionDict / providerStateDict /
 // sessionDict / crossingDict). No new imports needed (TrackerCore + TrackerGeo already imported).
 
-  // MARK: - TrackerEvent (the 19-case union; iOS emits 17 of them)
+  // MARK: - TrackerEvent (the 21-case wire union; iOS emits 19 of them)
 
-  /// TrackerEvent → wire discriminated union { type, ...payload }. iOS has NO geofenceAdded /
-  /// geofenceRemoved (Android-only); it DOES emit geofenceDwell, licenseDeactivated and
-  /// trackingGap. iOS `ErrorCode` is String-backed and
-  /// its rawValue is already the wire vocabulary (case `internalError` → "internalError"), so no
-  /// rename is required here — unlike Android, where `INTERNAL` is remapped in `errorCodeWire`.
+  /// TrackerEvent → wire discriminated union { type, ...payload }. iOS emits geofenceAdded /
+  /// geofenceRemoved as of the 1.0.0 rebuild at commit b4afe5ba, so those are no longer
+  /// Android-only; geofenceDwell, licenseDeactivated and trackingGap remain iOS-only.
+  /// iOS `ErrorCode` is String-backed and its rawValue is already the wire vocabulary (case
+  /// `internalError` → "internalError"), so no rename is required here — unlike Android, where
+  /// `INTERNAL` is remapped in `errorCodeWire`. That holds for the codes the same rebuild added
+  /// (`oneShotBusy` / `oneShotCircuitOpen` / `fixRejected` / `licenseRevoked` / `licenseExpired`):
+  /// they cross verbatim with no case to add here.
   static func eventDict(_ e: TrackerEvent) -> [String: Any] {
     switch e {
     case .location(let p):
@@ -481,6 +482,12 @@ enum TrackerMappers {
       return ["type": "geofenceExit", "crossing": crossingDict(ev)]
     case .geofenceDwell(let ev):
       return ["type": "geofenceDwell", "crossing": crossingDict(ev)]
+    case .geofenceAdded(let fence):
+      // The WHOLE fence, not just the id: `radiusM` here is the value CoreLocation actually
+      // accepted after clamping, and this event is the only place it is reported back.
+      return ["type": "geofenceAdded", "geofence": geofenceDict(fence)]
+    case .geofenceRemoved(let id):
+      return ["type": "geofenceRemoved", "geofenceId": id]
     case .batteryChange(let b):
       return ["type": "batteryChange", "battery": batteryDict(b)]
     case .licenseDeactivated(let status, let reason):

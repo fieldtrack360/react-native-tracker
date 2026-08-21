@@ -1,10 +1,18 @@
 import groovy.json.JsonSlurper
 
 buildscript {
+  // Fallbacks, used only when the host's root project does not define these (see
+  // getExtOrDefault). They track the SDK's OWN baseline, which v1.0.1-alpha-10 deliberately
+  // lowered so a stock React Native 0.81 Android host consumes the AARs without upgrading
+  // anything: Kotlin 2.1.x metadata, compileSdk 36, Java 11 bytecode, AGP 8.x.
+  //
+  // These were 2.4.10 / 37 up to alpha-08, whose AARs carried Kotlin 2.4 metadata that a 2.2
+  // compiler could not read at all. That is no longer true, so the floors come back down — a
+  // library must not drag every host onto a bleeding-edge toolchain it no longer needs.
   ext.Tracker = [
-    kotlinVersion: "2.4.10",
+    kotlinVersion: "2.1.20",
     minSdkVersion: 26,
-    compileSdkVersion: 37
+    compileSdkVersion: 36
   ]
 
   ext.getExtOrDefault = { prop ->
@@ -52,6 +60,13 @@ android {
 dependencies {
   implementation "com.facebook.react:react-android"
   implementation "com.github.fieldtrack360:fieldtrack:${trackerAndroidVersion}"
-  implementation "com.squareup.okhttp3:okhttp:5.4.0"
-  implementation "com.google.android.gms:play-services-maps:20.0.0"
+  // OkHttp is compileOnly inside fieldtrack-sync/-snap, so a host that wants their built-in HTTP
+  // paths supplies it. Pinned to the version the SDK itself builds against: Retrofit 3 and OkHttp 5
+  // are versioned together, and fieldtrack-core already brings Retrofit 3.0.0 transitively (it is a
+  // real dependency there, because the licence check must work in a host that brought no client).
+  implementation "com.squareup.okhttp3:okhttp:5.1.0"
+  // Match the SDK's own pin rather than overriding it. 20.0.0 ships Kotlin 2.3 metadata, which the
+  // Kotlin 2.1.x compiler an RN 0.81 host uses cannot read; declaring it here would win through
+  // Gradle conflict resolution and put it back on the classpath the SDK removed it from.
+  implementation "com.google.android.gms:play-services-maps:19.2.0"
 }

@@ -85,13 +85,14 @@ export function FencesScreen() {
         // when the condition was met rather than when it arrived.
         kind = 'DWELL';
         id = event.crossing.geofenceId;
-      } else if (
-        event.type === 'geofenceAdded' ||
-        event.type === 'geofenceRemoved'
-      ) {
-        // Android-only. The SDK confirming an arm is how a tester tells "the fence never armed"
-        // from "the fence armed and never fired".
-        kind = event.type === 'geofenceAdded' ? 'ADDED' : 'REMOVED';
+      } else if (event.type === 'geofenceAdded') {
+        // Both platforms. The SDK confirming an arm is how a tester tells "the fence never armed"
+        // from "the fence armed and never fired" — and the radius on this event is the CLAMPED one,
+        // so it is also where a fence asked for at 50 m shows up as the 100 m the OS will monitor.
+        kind = 'ADDED';
+        id = event.geofence.id;
+      } else if (event.type === 'geofenceRemoved') {
+        kind = 'REMOVED';
         id = event.geofenceId;
       }
       if (!kind || !id) {

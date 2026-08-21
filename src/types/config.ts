@@ -91,6 +91,13 @@ export type TrackerConfig = {
   };
 
   android?: {
+    /** Scheme + host for uploads, e.g. `https://api.example.com`. Android-only: iOS `TrackerConfig`
+     *  has no counterpart. Core never opens a socket — this exists so `TrackerSync` can resolve a
+     *  RELATIVE sync url against it, which is the only way to keep one base in one place instead of
+     *  a second full URL that drifts. An absolute `SyncConfig.url` always WINS; the base is a
+     *  fallback, never an override. Rejected by `ready()` unless it is an absolute URL with a
+     *  scheme and a host. */
+    baseUrl?: string;
     providerType?: LocationProviderType;
     fastestIntervalMs?: number;
     maxUpdateDelayMs?: number;

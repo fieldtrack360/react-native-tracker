@@ -8,6 +8,7 @@ package com.fieldtrack360.tracker
 import com.field360.traker.sync.SyncConfig
 import com.field360.traker.sync.SyncEvent
 import com.field360.traker.sync.SyncQueue
+import com.field360.traker.sync.SyncTimeouts
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
 import org.json.JSONObject
@@ -15,36 +16,55 @@ import org.json.JSONObject
 object SyncMappers {
 
   // Wire SyncConfig JSON -> native Android `SyncConfig`. Android reads shared (url/method/headers/
-  // autoSync/batchSize) + `android.requiresUnmeteredNetwork` ONLY. The iOS gate
-  // (ios.requiresNetworkConnectivity) and the iOS-only fields (wipeOnAuthExpiry / backoff* /
-  // autoSyncCoalesceSec) are ignored — the two network gates are NOT unified. Android url
-  // is a plain String (no URL parse). Undecodable JSON / a missing url throws → the module rejects
-  // invalidConfig. Positional ctor (SyncConfig.txt:12): (url, method, headers, autoSync, batchSize,
-  // requiresUnmeteredNetwork).
+  // autoSync/batchSize) + the `android.*` block ONLY. The iOS gate (ios.requiresNetworkConnectivity)
+  // and the iOS-only fields (wipeOnAuthExpiry / backoff* / autoSyncCoalesceSec) are ignored — the
+  // two network gates are NOT unified. Android url is a plain String (no URL parse); undecodable
+  // JSON / a missing url throws -> the module rejects invalidConfig.
   //
-  // FIRST-BUILD RECONCILIATION: the primary ctor takes all six non-null args, so an omitted optional
-  // needs SOME value here. The synthetic SyncConfig(...,int,DefaultConstructorMarker) ctor
-  // (SyncConfig.txt:13) shows the data class HAS Kotlin defaults; the fallbacks below (method="POST",
-  // autoSync=false, batchSize=100, requiresUnmeteredNetwork=false) must be confirmed against those
-  // real SDK defaults at first build — switch to named-arg omission if they diverge.
+  // Built through `SyncConfig.builder()` and only for keys the wire actually carries, so an OMITTED
+  // optional keeps the SDK's OWN default instead of one restated here. That matters: this used to
+  // construct positionally with a hardcoded `autoSync = false` fallback while the SDK default is
+  // `true`, so a host that never mentioned autoSync silently got auto-upload off on Android and on
+  // on iOS. Do not reintroduce literal defaults in this function.
+  //
+  // `buildUnchecked()`, not `build()`: validation belongs to `TrackerSync.configure()`, which also
+  // resolves the url against `TrackerConfig.baseUrl` first. Validating here would reject a bare
+  // path that configure() would have completed.
   fun syncConfigFromWire(json: String): SyncConfig {
     val o = JSONObject(json) // throws JSONException on undecodable JSON -> invalidConfig
     val url = o.optString("url", "")
     require(url.isNotEmpty()) { "sync config is missing a url" }
-    val method = if (o.has("method") && !o.isNull("method")) o.getString("method") else "POST"
-    val headers = HashMap<String, String>()
+
+    val b = SyncConfig.builder().url(url)
+    if (o.has("method") && !o.isNull("method")) b.method(o.getString("method"))
     o.optJSONObject("headers")?.let { h ->
       val keys = h.keys()
       while (keys.hasNext()) {
         val k = keys.next()
-        headers[k] = h.getString(k)
+        b.header(k, h.getString(k))
       }
     }
-    val autoSync = o.optBoolean("autoSync", false)
-    val batchSize = o.optInt("batchSize", 100)
-    val android = o.optJSONObject("android")
-    val requiresUnmeteredNetwork = android?.optBoolean("requiresUnmeteredNetwork", false) ?: false
-    return SyncConfig(url, method, headers, autoSync, batchSize, requiresUnmeteredNetwork)
+    if (o.has("autoSync")) b.autoSync(o.getBoolean("autoSync"))
+    if (o.has("batchSize")) b.batchSize(o.getInt("batchSize"))
+
+    o.optJSONObject("android")?.let { a ->
+      if (a.has("requiresUnmeteredNetwork")) {
+        b.requiresUnmeteredNetwork(a.getBoolean("requiresUnmeteredNetwork"))
+      }
+      if (a.has("gzipRequestBody")) b.gzipRequestBody(a.getBoolean("gzipRequestBody"))
+      if (a.has("allowCleartext")) b.allowCleartext(a.getBoolean("allowCleartext"))
+      // timeouts: partial objects are supported, so each leg falls back to the SDK's own default
+      // rather than to a number written here.
+      a.optJSONObject("timeouts")?.let { t ->
+        val d = SyncTimeouts()
+        b.timeouts(
+          if (t.has("connectMs")) t.getLong("connectMs") else d.connectMs,
+          if (t.has("readMs")) t.getLong("readMs") else d.readMs,
+          if (t.has("writeMs")) t.getLong("writeMs") else d.writeMs,
+        )
+      }
+    }
+    return b.buildUnchecked()
   }
 
   // Native `SyncQueue.Result` -> wire { kind, count?, reason? }. Four cases shared with iOS:

@@ -53,13 +53,14 @@ map rendering, and an upload (sync) engine.
 
 | | Minimum | Notes |
 |---|---|---|
-| React Native | **0.76+** with New Architecture enabled | Developed and verified against RN **0.87** |
+| React Native | **0.81+** with New Architecture enabled | Developed and verified against RN **0.87** |
 | Node | 22+ (`.nvmrc` pins v24) | Needed for the iOS framework fetch on install |
 | iOS | **17.0** | The vendored XCFrameworks target `arm64-apple-ios17.0` and are not weak-linked |
 | Xcode / CocoaPods | Xcode 26+, CocoaPods 1.15+ | |
-| Android | **minSdk 26**, **compileSdk 37**, **buildTools 37**, target 36 | `compileSdk 37` is load-bearing — the AAR declares `minCompileSdk=37` and AGP hard-errors below it |
-| Kotlin | **2.4.x** (verified: 2.4.10) | The AAR carries Kotlin 2.4 metadata; RN's default 2.2.0 compiler cannot read it at all |
-| JDK | 17 | |
+| Android | **minSdk 26**, **compileSdk 36**, target 36 | The config plugin raises `minSdkVersion`/`compileSdkVersion` for you; it never lowers them |
+| Kotlin | **2.0+** (verified: 2.1.20) | React Native's own pin is enough — no override needed |
+| AGP | **8.x+** (verified: 8.11) | |
+| JDK | 17 (11+ works) | |
 | Maps | A Google Maps API key — **optional**, and only on Android | Needed solely to render `<TrackMapView>` / `<LiveTrackMapView>`. Tracking, sessions, geofences and sync need no key |
 
 None of these floors is adjustable from the bridge.
@@ -257,7 +258,7 @@ survives a prebuild. It performs exactly the manual steps and nothing more.
 The plugin also: merges `location`/`processing` into `UIBackgroundModes`, merges both
 `BGTaskSchedulerPermittedIdentifiers`, inserts `TrackerLaunch.ready()` into the AppDelegate
 (Swift and Objective-C, idempotent), adds the JitPack repository to
-`settings.gradle`, and raises `minSdkVersion`/`compileSdkVersion` to 26/37 (it never lowers them).
+`settings.gradle`, and raises `minSdkVersion`/`compileSdkVersion` to 26/36 (it never lowers them).
 Expo Go cannot load this SDK — use a development build.
 
 ---
@@ -281,17 +282,20 @@ withdrew the manifest `<meta-data>` route outright, and while iOS still reads an
 can disagree. The plugin therefore exposes no `iosLicense` / `androidLicense` option: put the token
 in your config object and it reaches both SDKs through the same field.
 
-> **Token prefix is worth checking once.** The Android integration guide for `v1.0.1-alpha-08`
-> documents a `TRACKIT-` prefixed token, while tokens issued under the TrackIt → Tracker rename are
-> `TRACKER-` prefixed. A mismatched prefix fails the offline gate with `licenseInvalid` and the
-> licence gate's own message `"License token has the wrong prefix"`. Debuggable installs are
-> waived, so this only ever appears on a release build — confirm the prefix with your vendor before
-> you cut one.
+> **Token prefix.** Tokens are currently issued with a **`TRACKIT-`** prefix on both platforms. A
+> mismatched prefix fails the offline gate with `licenseInvalid` and the message
+> `"License token has the wrong prefix"`. Debuggable installs are waived, so this only ever appears
+> on a release build; if a token you were issued starts with anything else, confirm with your
+> vendor before you cut one.
 
 Debug/simulator builds and debuggable Android installs are licence-**waived**, so the token can be
 absent entirely during development. Failures resolve as `licenseMissing`, `licenseInvalid`, or
-`licenseBundleMismatch` — and, on Android `v1.0.1-alpha-08`+, the online check adds `licenseRevoked`
-and `licenseExpired`, which **stop tracking** (see [Licence status on Android](#licence-status-on-android)).
+`licenseBundleMismatch`. **Both platforms** additionally run an online revocation check that can add
+`licenseRevoked` and `licenseExpired`, which **stop tracking**. Neither blocks startup: the check is fail-open,
+so no network, an unverifiable reply or a server error all leave the tracker recording. On iOS
+`start()` stays refused until the server reports the licence active again, and the same two also
+arrive as `licenseDeactivated` with the admin's note; on Android they arrive as `licenseChecked`
+(see [Licence status on Android](#licence-status-on-android)).
 
 ### Getting the token into JS
 
@@ -341,9 +345,10 @@ you paid, so do not commit it.
 
 ### Licence status on Android
 
-Android `v1.0.1-alpha-08` added an **online** check alongside the offline gate: the SDK asks the
-licence server whether the token has been revoked or expired since it was issued. You wire nothing
-up for it.
+**Both** platforms run an **online** check alongside the offline gate: the SDK asks the licence
+server whether the token has been revoked or expired since it was issued, and stops tracking with
+`licenseRevoked` / `licenseExpired` if so. You wire nothing up for it. What is Android-only is the
+**readback surface** below — the `licenseChecked` event and the two `Tracker.android.*` calls.
 
 It runs shortly after every `ready()` and every 12 hours after that, never blocks `ready()`, and is
 **fail-open** — a server outage never stops a paying customer.
@@ -368,9 +373,11 @@ continues.
 be verified, so the absence of a verdict tells you nothing — reading it as approval would mean
 reading a server outage as a valid licence.
 
-iOS has **no counterpart**: it ships only the offline gate plus its own `licenseDeactivated` event,
-which carries an untyped `status` string and fires only to deactivate. `Tracker.android.*` rejects
-`unsupportedOnPlatform` there. Do not write one handler assuming both.
+**iOS runs the same check but reports it differently.** There is no `licenseChecked` event and no
+status readback — `Tracker.android.licenseInfo()` / `checkLicense()` reject `unsupportedOnPlatform`
+there. Instead iOS speaks up only to deactivate, through `licenseDeactivated` (an untyped `status`
+string plus the admin's note) and the matching `error` code, and refuses `start()` until the server
+reports the licence active again. Do not write one handler assuming both shapes.
 
 ### Why there is no `builder()` in JavaScript
 
@@ -625,12 +632,17 @@ const fix = await Tracker.getCurrentLocation();
 if (fix.ok) {
   console.log(fix.value.latitude, fix.value.longitude, fix.value.accuracyM);
 } else {
-  // On iOS every failure of THIS method reports `fixTimeout` — read `message`, do not branch on code.
-  console.warn(fix.message);
+  // iOS names the cause: fixTimeout is retryable; oneShotBusy, oneShotCircuitOpen and fixRejected
+  // are NOT — await the call in flight, or wait for the circuit to close. Android reports
+  // notReady / permissionDenied / locationDisabled / fixTimeout only.
+  console.warn(fix.code, fix.message);
 }
-
-// The fix is reported, never stored: it adds no point to any session on either platform.
 ```
+
+**On iOS the fix is also stored.** The iOS SDK's one-shot feeds the ingest consumer by default, so
+with a session open this adds a judged point to it — nothing is bypassed, but a screen that asks
+"where am I" grows the user's track each time it opens. Android's one-shot is snapshot-only: never
+accepted, persisted, added to the odometer, or emitted.
 
 ### Reading stored points
 
@@ -941,7 +953,7 @@ availability is **both platforms**.
 
 | Method | Parameters | Returns | Notes |
 |---|---|---|---|
-| `getCurrentLocation()` | — | `Promise<TrackerResult<TrackFix>>` | The fix is reported, never stored. On iOS every failure of this method reports `fixTimeout` — read `message`, do not branch on `code` |
+| `getCurrentLocation()` | — | `Promise<TrackerResult<TrackFix>>` | **iOS also stores the fix** on the open session; Android reports it only. iOS failures name themselves — `fixTimeout` is retryable, `oneShotBusy` / `oneShotCircuitOpen` / `fixRejected` are not |
 
 ### Plotting
 
@@ -1048,8 +1060,8 @@ type TrackerEvent =
   | { type: 'geofenceEnter';      crossing: GeofenceCrossing }
   | { type: 'geofenceExit';       crossing: GeofenceCrossing }
   | { type: 'geofenceDwell';      crossing: GeofenceCrossing }   // iOS only
-  | { type: 'geofenceAdded';      geofenceId: string }           // Android only
-  | { type: 'geofenceRemoved';    geofenceId: string }           // Android only
+  | { type: 'geofenceAdded';      geofence: Geofence }          // radiusM is the CLAMPED value
+  | { type: 'geofenceRemoved';    geofenceId: string }
   | { type: 'batteryChange';      battery: BatteryInfo }
   | { type: 'licenseDeactivated'; status: string; reason: string | null }  // iOS only
   | { type: 'trackingGap';        durationSec: number; distanceMeters: number };  // iOS only
@@ -1078,15 +1090,17 @@ one.
 Bridge **rejections** use these codes: `invalidConfig` (bad arguments / undecodable JSON),
 `unsupportedOnPlatform` (wrong-platform namespace), `internalError` (an unexpected native throw).
 
-Domain failures **resolve** with an `ErrorCode` (24 values):
+Domain failures **resolve** with an `ErrorCode` (32 values):
 
-- **Shared (17):** `notReady`, `permissionDenied`, `backgroundPermissionMissing`, `coarseOnly`,
+- **Shared (19):** `notReady`, `permissionDenied`, `backgroundPermissionMissing`, `coarseOnly`,
   `locationDisabled`, `fgsStartRefused`, `fixTimeout`, `storageFull`, `storageReset`,
   `trackerDead`, `invalidConfig`, `motionDetectionDegraded`, `snapUnavailable`, `internalError`,
-  `licenseMissing`, `licenseInvalid`, `licenseBundleMismatch`
-- **Android only (7):** `playServicesUnavailable`, `notificationHidden`, `noActivity`,
+  `licenseMissing`, `licenseInvalid`, `licenseBundleMismatch`, `licenseRevoked`, `licenseExpired`
+- **iOS only (3):** `oneShotBusy`, `oneShotCircuitOpen`, `fixRejected` — all three from
+  `getCurrentLocation()`, and none of them worth retrying
+- **Android only (10):** `playServicesUnavailable`, `notificationHidden`, `noActivity`,
   `geofenceRegistrationFailed`, `geofenceRemovalFailed`, `geofenceLimitReached`,
-  `deviceIntegrityBlocked`
+  `deviceIntegrityBlocked`, `licenseUnknown`, `licensePackageMismatch`, `licenseSdkMismatch`
 
 `fgsStartRefused` exists in the iOS enum but is never emitted there. `deviceIntegrityBlocked` is
 release-only (the integrity layer is waived on debuggable installs) and **ends an in-flight
@@ -1137,7 +1151,8 @@ type TrackPoint = {
   activityStartTimeMs; odometerM: number;
   hasSpeed; hasBearing: boolean; movementStatus: 'steady' | 'moving';
   altitudeM?; batteryPct?: number; detectedActivity?: ActivityType; extras?: string; acceptReason: string;
-  ios?: { isMock?; isCharging?; isSignificantStop?: boolean };
+  isCharging?; isMock?: boolean;                 // both platforms; null/absent = NOT KNOWN
+  ios?: { isSignificantStop?: boolean };
 };
 
 type TrackSession = {
@@ -1410,8 +1425,8 @@ Fetch-script environment variables (all optional):
 |---|---|
 | `Could not find com.github.fieldtrack360:fieldtrack:…` | No JitPack repository is in the resolution set — normally React Native's root plugin injects one. If your host removed it, or pins `repositoriesMode` to `FAIL_ON_PROJECT_REPOS` without it, add `maven { url 'https://jitpack.io' }` to `dependencyResolutionManagement.repositories` in `android/settings.gradle` |
 | A stale `authToken` / JitPack credentials block causes a `401` | The SDK is now readable anonymously — delete the credentials from `settings.gradle`, the `allprojects { repositories.withType(MavenArtifactRepository) … }` block from `android/build.gradle`, and `authToken` from `~/.gradle/gradle.properties` |
-| `… was compiled with an incompatible version of Kotlin` on every SDK type | Kotlin < 2.4 — set `kotlinVersion = "2.4.10"` in the root `build.gradle` |
-| `Dependency … requires compileSdkVersion 37 or later` | Raise `compileSdkVersion` to 37 (and install SDK platform 37 + a matching AGP) |
+| `… was compiled with an incompatible version of Kotlin` | Your `kotlinVersion` is below 2.0, or you are on an older release of this package. Upgrade the package first — a `kotlinVersion` override is almost never the right fix |
+| `Dependency … requires compileSdkVersion 37 or later` | An older release of this package. Upgrade it rather than installing SDK platform 37 |
 | `Could not find …:gradle:` with an empty version | The second `includeBuild` of `@react-native/gradle-plugin` in `settings.gradle` is missing |
 | Map surface is blank, only a logcat line | The `com.google.android.geo.API_KEY` `<meta-data>` element is missing, or the manifest placeholder is empty — required once you mount a map component. Assigning `manifestPlaceholders = [...]` (instead of index assignment) also wipes React Native's own placeholders |
 | Session stops when the app is swiped away | `android.stopOnTerminate` — and check the notification permission: a suppressed foreground-service notification makes the OS more willing to kill the app |
@@ -1425,7 +1440,8 @@ Fetch-script environment variables (all optional):
 | No background capture at all, no error | `TrackerLaunch.ready()` is not called from `didFinishLaunchingWithOptions`, or is called after React Native starts |
 | `dyld: … MinimumOSVersion` load failure at launch | The app target's `IPHONEOS_DEPLOYMENT_TARGET` is below 17.0. The Podfile `post_install` gate catches this at install time — add it |
 | Crash on first permission prompt | A missing `NSLocation…UsageDescription` / `NSMotionUsageDescription` string |
-| `getCurrentLocation` always fails with `fixTimeout` | Expected on iOS: this method collapses every failure onto that code. Read `message` — it distinguishes timeout, missing authorization and a concurrent call |
+| `getCurrentLocation` fails with `oneShotBusy` / `oneShotCircuitOpen` | iOS, and **not retryable**. `oneShotBusy` means a capture is already in flight — await that one. `oneShotCircuitOpen` means three consecutive failures opened the circuit; it closes when authorization is granted, location services return, or a session starts |
+| `getCurrentLocation` adds points to the track | iOS only, and by design — the SDK's one-shot feeds the ingestor by default. Android never does this |
 
 ### Licence and configuration
 
@@ -1434,7 +1450,7 @@ Fetch-script environment variables (all optional):
 | `licenseMissing` in a release build, fine in debug | Both platforms waive debug/debuggable builds. Supply the token via `Tracker.ready({ license })` — the only route |
 | `licenseBundleMismatch` | The token was issued for a different bundle id / application id (including `.dev` / `.staging` variants). Each app id needs its own token or an explicitly licensed alias |
 | `licenseInvalid` | Truncated or wrapped token, or one from a different key generation |
-| `licenseInvalid`, or `"wrong prefix"` in the log | Prefix mismatch. The `v1.0.1-alpha-08` guide documents `TRACKIT-` tokens; post-rename tokens are `TRACKER-`. Confirm which your SDK build expects with your vendor |
+| `licenseInvalid`, or `"wrong prefix"` in the log | Prefix mismatch. Both current guides document `TRACKIT-` tokens; confirm with your vendor if yours differs |
 | `invalidConfig` rejection from `ready()` | The config object failed to decode natively — usually an out-of-range value or a field in the wrong namespace |
 | Config changes have no effect | `reset: false` was passed, so the persisted config won. Pass `reset: true` (the default) on a later launch |
 | `deviceIntegrityBlocked` (Android, release only) | The integrity layer refused the device/build; the in-flight session **ends** |
@@ -1466,17 +1482,20 @@ Fetch-script environment variables (all optional):
 
 Stated, not discovered:
 
-- **iOS 17.0 / Android API 26 minimums**, and **compileSdk 37 + Kotlin 2.4** on Android — not
+- **iOS 17.0 / Android API 26 minimums**, and **compileSdk 36 + Kotlin 2.0+** on Android — not
   adjustable from the bridge.
-- **`getCurrentLocation` failures all report `fixTimeout` on iOS** — timeout, missing
-  authorization and a concurrent call share one `code`; only `message` distinguishes them. Do not
-  treat it as "retry later".
+- **`getCurrentLocation` diverges on whether the fix is stored** — the iOS SDK feeds its ingest
+  consumer by default, so with a session open the one-shot adds a judged point to the track;
+  Android's is snapshot-only. Its failure codes diverge too: iOS names `oneShotBusy`,
+  `oneShotCircuitOpen` and `fixRejected` (none retryable) on top of `fixTimeout`; Android reports
+  `fixTimeout` for all of them.
 - **`ios.changePace`, `ios.requestMotion`, `ios.getMotionAuthorization`,
   `ios.requestTemporaryFullAccuracy` are iOS-only**; the whole `Tracker.android` namespace is
   Android-only.
 - **Geofence dwell (`dwellAfterMs`, `geofenceDwell`), `licenseDeactivated` and `trackingGap` are
-  iOS-only**; `geofenceAdded` / `geofenceRemoved` are Android-only. Setting `dwellAfterMs` or
-  `notifyOnEntry/Exit: false` on Android is refused with `invalidConfig`.
+  iOS-only**; `integrityChange` and `licenseChecked` are Android-only. `geofenceAdded` /
+  `geofenceRemoved` now reach **both**. Setting `dwellAfterMs` or `notifyOnEntry/Exit: false` on
+  Android is refused with `invalidConfig`.
 - **Geofence crossings delivered to a relaunched process never reach a live JS subscriber** — read
   them from `Tracker.geofences.getEvents()`.
 - **A JS-implemented road-snap provider is not supported** (the native protocol is invoked inside
