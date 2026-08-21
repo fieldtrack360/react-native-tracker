@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Share } from 'react-native';
+import { AppState, Share } from 'react-native';
 import Tracker, {
   TrackerSync,
   onBatteryThreshold,
@@ -661,7 +661,16 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     ]
   );
 
+
   // MARK: - Lifecycle
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        void refreshPermissions();
+      }
+    });
+    return () => subscription.remove();
+  }, [refreshPermissions]);
 
   /// Permissions, then the run header, then the sessions, then the event stream.
   ///
