@@ -1,7 +1,7 @@
 {
   "name": "@fieldtrack360/react-native-tracker",
-  "version": "1.0.0",
-  "description": "React Native bridge for the Tracker location SDK (iOS + Android)",
+  "version": "1.0.1",
+  "description": "Location Tracking SDK for React Native",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
   "exports": {

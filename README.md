@@ -271,22 +271,17 @@ enforcement table below before you build a licence-gating screen on top of `read
 
 ### Getting a licence
 
-Buy one at **<https://fieldtrack360-sdk.devstree.in/>**. There is a **free 30-day trial**, no card
-required, if you want to evaluate the SDK on one application first.
+Buy one at **<https://fieldtrack360-sdk.devstree.in/>**, which also has a free trial for
+evaluating first. Plans and prices live there; two things about a key change how you wire this
+package up:
 
-What matters when you buy:
+- **One key covers both platforms**, so you supply exactly one token — which is why there is a single `license` field.
+- **A key is bound to one application identifier**, named at checkout. Decide your `applicationId` /
+  bundle identifier before you buy, and expect a separate key per app: on iOS a token issued against
+  a different identifier fails `ready()` with `licenseBundleMismatch`.
 
-- **One application key covers both platforms.** The same key is valid for Android, iOS, React
-  Native and Flutter, so this bridge needs exactly one token — not one per platform. That is why
-  the plugin exposes a single `license` field rather than an `iosLicense` / `androidLicense` pair.
-- **A key is bound to one application identifier**, for unlimited users and devices. You name that
-  identifier during checkout, so have your `applicationId` / bundle identifier decided first, and
-  budget a key per app.
-- **Perpetual.** A one-time purchase with no renewal date, so a licence cannot lapse mid-deployment.
-  The bundled window of SDK updates does end; the licence itself does not.
-
-The token is shown on screen at the end of checkout and emailed to you. Drop it straight into the
-config field below — there is nothing to register and no client secret to wire up.
+The token arrives on screen at checkout and by email. Drop it into the config field below — there is
+nothing to register and no client secret.
 
 ### Supplying the token
 
