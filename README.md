@@ -888,17 +888,28 @@ switch (result.kind) {
   case 'uploaded':   console.log(result.count); break;
   case 'empty':      break;
   case 'retry':      console.log('will retry:', result.reason); break;
-  case 'authExpired': /* refresh credentials and reconfigure */ break;
+  case 'authExpired': /* 401 — refresh credentials and reconfigure */ break;
+  case 'forbidden':   /* Android only, 403 — reconfigure; the queue is intact */ break;
 }
 
 const pending = await TrackerSync.pendingCount();   // TrackerResult<number>
 
-// iOS only. On Android the subscription is inert and the returned unsubscribe is a safe no-op.
-const unsub = TrackerSync.ios.onSyncEvent((e) => console.log(e.type));
+// Both platforms. Only `httpResponse` arrives on Android; the other three types are iOS-only.
+const unsub = TrackerSync.onSyncEvent((e) => console.log(e.type));
 ```
 
-The Android SDK's HTTP 403 (`Forbidden`) result is folded onto the `authExpired` wire kind — both
-mean the credentials will not be accepted.
+`forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
+`authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
+— while a 403 keeps tracking running and every queued row intact, and only halts the retry loop.
+Recover from it by calling `configure()` again with a credential allowed to write that endpoint; a
+re-login and a wipe would be the wrong reaction to what is usually a scope or permission problem.
+
+`onSyncEvent` runs on both platforms, but the event vocabulary does not match: Android's SDK
+`SyncEvent` has the single `httpResponse` case, so `uploaded` / `retryScheduled` / `authExpired`
+never fire there — read upload outcomes from `syncNow()` / `pendingCount()` instead. Android also
+replays the last exchange to a new subscriber, so the first event after subscribing may describe a
+drain that finished earlier; iOS replays nothing. `TrackerSync.ios.onSyncEvent` remains as a
+deprecated alias for the same function.
 
 ---
 
@@ -1051,11 +1062,12 @@ one.
 
 | Method | Parameters | Returns | Notes |
 |---|---|---|---|
-| `configure(config)` | `SyncConfig` | `Promise<void>` | Rejects `invalidConfig` on bad JSON / an unparseable iOS url |
+| `configure(config)` | `SyncConfig` | `Promise<void>` | Rejects `invalidConfig` on bad JSON, an unparseable iOS url, or a failed Android `SyncConfig.validate()` (cleartext url, verb outside POST/PUT/PATCH, batchSize out of range) |
 | `requestSync()` | — | `Promise<void>` | Call after accepted points even with `autoSync` on |
-| `syncNow()` | — | `Promise<SyncResult>` | `uploaded` / `empty` / `retry` / `authExpired` |
+| `syncNow()` | — | `Promise<SyncResult>` | `uploaded` / `empty` / `retry` / `authExpired`, plus `forbidden` (**Android only**) |
 | `pendingCount()` | — | `Promise<TrackerResult<number>>` | |
-| `ios.onSyncEvent(cb)` | `(e: SyncEvent) => void` | `() => void` | **iOS only**; inert no-op on Android |
+| `onSyncEvent(cb)` | `(e: SyncEvent) => void` | `() => void` | Both platforms; only `httpResponse` is emitted on Android |
+| `ios.onSyncEvent(cb)` | `(e: SyncEvent) => void` | `() => void` | **Deprecated** alias for `onSyncEvent` |
 
 ### Components
 
@@ -1441,7 +1453,7 @@ Fetch-script environment variables (all optional):
 | Symptom | Cause / fix |
 |---|---|
 | Everything returns `notReady` | `ready()` was never awaited, or it resolved `{ ok:false }` and the result was swallowed |
-| A subscription never fires | Either it is a platform-only stream (`geofenceDwell`, `geofenceAdded/Removed`, `TrackerSync.ios.onSyncEvent`), or the unsubscribe ran early — verify the effect's cleanup |
+| A subscription never fires | Either it is a platform-only stream (`geofenceDwell`, `geofenceAdded/Removed`), a `SyncEvent` type Android never emits (everything but `httpResponse`), or the unsubscribe ran early — verify the effect's cleanup |
 | Geofence crossings are missing after a relaunch | Crossings delivered to a relaunched process never reach a live JS subscriber. Read `Tracker.geofences.getEvents()` at launch |
 | `geofenceLimitReached` | The usable cap is 19 |
 | `buildTrack` result looks short | The query page came back full — check `track.warnings` for the truncation notice and raise `limit` |
@@ -1471,8 +1483,9 @@ Stated, not discovered:
   `buildTrack`). OSRM is configurable via `setOsrmSnapProvider`.
 - **The two sync network gates are not unified** — iOS `requiresNetworkConnectivity` (any
   connectivity) and Android `requiresUnmeteredNetwork` (unmetered only) are different policies.
-  **`TrackerSync.ios.onSyncEvent` is iOS-only.** The Android-only HTTP 403 result is folded onto
-  `authExpired`.
+  `TrackerSync.onSyncEvent` runs on both platforms, but **only `httpResponse` is emitted on
+  Android** — its SDK `SyncEvent` has no other case. **`forbidden` (HTTP 403) is Android-only** and
+  is not the same thing as `authExpired`.
 - **`activityConfidenceMin` differs by platform** (66 iOS / 75 Android, by design), and
   `activityRecognitionIntervalMs` is a real battery control on Android but saves nothing on iOS.
 - **Map renderer `options` are platform-divergent and unmerged** on both components.

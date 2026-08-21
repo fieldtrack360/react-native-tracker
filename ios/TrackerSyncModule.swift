@@ -22,7 +22,7 @@ import TrackerSync
 // Result policy: a domain failure RESOLVES the envelope; the Promise REJECTS only for a
 // bridge fault — here, config JSON that will not decode or a url that will not parse (invalidConfig).
 
-// Swift extensions cannot hold stored properties, so the ios.onSyncEvent subscription state lives in
+// Swift extensions cannot hold stored properties, so the onSyncEvent subscription state lives in
 // this file-scoped store: one native Task per JS subscriber, cancelled on unsubscribe. DISTINCT from
 // the main module's store (separate module, separate device event "TrackerSyncEmit").
 private final class SyncSubscriptionStore {
@@ -130,7 +130,7 @@ public final class TrackerSyncImpl: NSObject {
     }
   }
 
-  // MARK: - ios.onSyncEvent subscription layer
+  // MARK: - onSyncEvent subscription layer
 
   /// Installed once by the ObjC++ host at init. `payload` is an NSDictionary (the sync event); the
   /// host wraps it as { id, payload } and calls RCTDeviceEventEmitter.emit on "TrackerSyncEmit".
@@ -139,7 +139,8 @@ public final class TrackerSyncImpl: NSObject {
     SyncSubscriptionStore.shared.emitter = block
   }
 
-  /// subscribeSyncEvents(): starts ONE Task consuming SyncEngine.events() and resolves its id.
+  /// subscribeSyncEvents(): starts ONE Task consuming SyncEngine.events() and resolves its id. The
+  /// Android module does the same over TrackerSync.events — this stream is not iOS-only.
   @objc(subscribeSyncEventsOnResolve:onReject:)
   public static func subscribeSyncEvents(onResolve: @escaping (NSNumber) -> Void,
                                          onReject: @escaping (NSString, NSString) -> Void) {

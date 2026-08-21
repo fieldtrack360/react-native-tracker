@@ -83,9 +83,14 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
   }, [refreshPending]);
 
   useEffect(() => {
-    // ios.onSyncEvent is iOS-only; on Android the subscription rejects `unsupportedOnPlatform` and
-    // this unsubscribe is a safe no-op. No Platform.OS branch — the namespace is always present.
-    const unsubscribe = TrackerSync.ios.onSyncEvent((event) => {
+    // The stream runs on BOTH platforms, but only `httpResponse` is emitted on Android — the SDK's
+    // SyncEvent has that one case there. The other three arms below are iOS-only and simply never
+    // fire on Android, which is why there is no Platform.OS branch: the switch already says it.
+    //
+    // Android also replays the last exchange to a new subscriber (its sink is replay = 1), so the
+    // first line in the feed after opening this screen may be a drain that finished while it was
+    // closed. That is the SDK's own choice and it is what a diagnostics screen wants.
+    const unsubscribe = TrackerSync.onSyncEvent((event) => {
       switch (event.type) {
         // The case this screen exists for. A 500, a 422 and a timeout produce the same retry, and
         // only the status tells a host which of the three it is looking at.
@@ -95,6 +100,7 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
             `${event.statusCode ?? 'no response'} for ${event.count} point${event.count === 1 ? '' : 's'}`
           );
           break;
+        // iOS only from here down.
         case 'uploaded':
           record('UPLOADED', String(event.count));
           void refreshPending();
@@ -165,6 +171,15 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
           break;
         case 'authExpired':
           setLastResult('401 — uploader torn down');
+          setConfiguredEndpoint(undefined);
+          break;
+        // Android only, and deliberately NOT the same as authExpired: the rows are all still
+        // queued and tracking is still running — only the retry loop has stopped. Configure again
+        // with a credential allowed to write this endpoint and the same queue drains.
+        case 'forbidden':
+          setLastResult(
+            '403 — uploads halted, queue kept; re-configure to resume'
+          );
           setConfiguredEndpoint(undefined);
           break;
         default:

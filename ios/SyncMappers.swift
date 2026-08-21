@@ -57,7 +57,8 @@ enum SyncMappers {
 
   // MARK: - SyncQueue.Result (the four cases)
 
-  /// Native `SyncQueue.Result` -> wire { kind, count?, reason? }. Same four cases on both platforms.
+  /// Native `SyncQueue.Result` -> wire { kind, count?, reason? }. These four cases are on both
+  /// platforms; Android has a fifth, "forbidden" (HTTP 403), which the iOS SDK does not model.
   static func syncResultDict(_ r: SyncQueue.Result) -> [String: Any] {
     switch r {
     case .uploaded(let count): return ["kind": "uploaded", "count": count]
@@ -67,11 +68,12 @@ enum SyncMappers {
     }
   }
 
-  // MARK: - SyncEvent (ios.onSyncEvent — iOS only)
+  // MARK: - SyncEvent (onSyncEvent — both platforms)
 
   /// Native `SyncEvent` -> wire { type, statusCode?, count?, afterSec?, reason? }. `httpResponse`
   /// carries `statusCode: Int?` — it is ALWAYS present on the wire and is NSNull when the request
-  /// never reached a server.
+  /// never reached a server. That case is the ONLY one the Android SDK's SyncEvent has, and its
+  /// mapper writes the same shape; `uploaded` / `retryScheduled` / `authExpired` below are iOS-only.
   static func syncEventDict(_ e: SyncEvent) -> [String: Any] {
     switch e {
     case .httpResponse(let statusCode, let count):
