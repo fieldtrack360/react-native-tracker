@@ -104,6 +104,45 @@ export function onBatteryChange(
   return subscribeStream('battery', undefined, (p) => p as BatteryInfo, cb);
 }
 
+export type BatteryThresholdCrossing = {
+  percent: number;
+  threshold: number;
+  crossing: 'below' | 'above';
+};
+
+// Real-time threshold-crossing wrapper over onBatteryChange(). The SDK's own `isLow` is a single
+// fixed cutoff (percent <= 15, owned natively); this lets a host watch its own set of cutoffs — e.g.
+// a "low" warning at 20% and a "critical" alert at 5% — without polling.
+//
+// Fires once PER CROSSING, not once per tick: dropping from 22% to 19% fires threshold=20 (below)
+// exactly once, and staying between two thresholds on later reads stays silent. `percent === null`
+// (unknown reading — simulator, monitoring off) is skipped rather than treated as a crossing in
+// either direction, since null is "not known", not zero.
+export function onBatteryThreshold(
+  thresholds: number[],
+  cb: (crossing: BatteryThresholdCrossing) => void
+): () => void {
+  const sorted = [...thresholds].sort((a, b) => a - b);
+  let lastPercent: number | null = null;
+
+  return onBatteryChange((battery) => {
+    const percent = battery.percent;
+    if (percent == null) {
+      return;
+    }
+    if (lastPercent != null) {
+      for (const threshold of sorted) {
+        const wasBelow = lastPercent <= threshold;
+        const isBelow = percent <= threshold;
+        if (wasBelow !== isBelow) {
+          cb({ percent, threshold, crossing: isBelow ? 'below' : 'above' });
+        }
+      }
+    }
+    lastPercent = percent;
+  });
+}
+
 // observePoints(sessionId). The point list is unbounded, so it crosses as a JSON
 // string; decode to TrackPoint[] here.
 export function onPoints(

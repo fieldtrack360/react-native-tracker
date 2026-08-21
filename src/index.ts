@@ -33,6 +33,8 @@ export {
   onStateChange,
   onProviderStateChange,
   onBatteryChange,
+  onBatteryThreshold,
+  type BatteryThresholdCrossing,
 } from './events';
 
 // Fabric map components. The typed wrappers own the JSON.stringify boundary; the specs
@@ -50,6 +52,7 @@ export { TrackerSync } from './sync';
 
 import {
   onBatteryChange,
+  onBatteryThreshold,
   onLiveTrack,
   onPoints,
   onProviderStateChange,
@@ -311,6 +314,7 @@ export const Tracker = {
   onStateChange,
   onProviderStateChange,
   onBatteryChange,
+  onBatteryThreshold,
   permissions,
   geofences,
   ios,

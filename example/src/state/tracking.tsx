@@ -11,6 +11,7 @@ import {
 import { Share } from 'react-native';
 import Tracker, {
   TrackerSync,
+  onBatteryThreshold,
   onPoints,
   onProviderStateChange,
   onStateChange,
@@ -112,6 +113,20 @@ export type TrackingSnapshot = {
 /// How many lines the on-screen feed keeps. A list bound, not a decision: nothing compares it, and
 /// the durable record is the capture log.
 const LOG_CAPACITY = 300;
+
+/// Cutoffs onBatteryThreshold() watches, independent of the SDK's own fixed `isLow` (15%). Wider
+/// than isLow so a run also surfaces the "getting low" moment, not only the SDK's own bar.
+const BATTERY_THRESHOLDS = [20, 10, 5];
+
+/// The native battery STREAM (batteryState()/onBatteryChange) has been observed dropping,
+/// splitting, or replaying stale fields between emissions — e.g. `percent` moves but
+/// `isCharging`/`powerSource` stay stale, or a burst of rapid level changes replays an old value
+/// for up to a minute before catching up. A plain one-shot getBatteryInfo() read has NOT shown
+/// that problem, so a periodic poll self-heals whatever the stream missed or got wrong. 4 s:
+/// snappy enough that "real time" holds up under fast changes, at the cost of more frequent
+/// getBatteryInfo() calls than a production app doing only battery-triggered UI would want — a
+/// host tuning for battery life should widen this back toward 15-30 s.
+const BATTERY_POLL_MS = 4_000;
 
 /// The page a session dump reads. `buildTrack` raises `truncated` when a page comes back full, so
 /// both reads use the same bound and the warning stays honest.
@@ -233,7 +248,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
   // Live sync needs an accepted-point signal per running session (Android does not auto-enqueue the
   // sync worker on accepted points even with autoSync on — requestSync() must be called after each
   // one). Re-pointed at the new session's onPoints stream on every start(), torn down on stop().
-  const unsubscribePoints = useRef<() => void>(() => {});
+  const unsubscribePoints = useRef<() => void>(() => { });
 
   // MARK: - The on-screen feed
 
@@ -416,6 +431,39 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     rebuildSnapshot();
   }, [rebuildSnapshot, record]);
 
+  // MARK: - Battery reconciliation
+  //
+  // Corrects for the native battery stream's observed field-dropping (see BATTERY_POLL_MS above)
+  // by re-reading the one-shot getBatteryInfo(), which has not shown the same problem. Logged only
+  // when it actually disagrees with what the stream last reported, so a healthy stream produces no
+  // extra lines.
+  const reconcileBattery = useCallback(async () => {
+    try {
+      const battery = await Tracker.getBatteryInfo();
+      const previous = facts.current.battery;
+      const changed =
+        !previous ||
+        previous.percent !== battery.percent ||
+        previous.isCharging !== battery.isCharging ||
+        previous.powerSource !== battery.powerSource ||
+        previous.isLow !== battery.isLow;
+      if (!changed) {
+        return;
+      }
+      facts.current.battery = battery;
+      mutate((snapshot) => ({ ...snapshot, battery }));
+      record(
+        'BATTERY',
+        `reconciled — ${battery.percent ?? '—'}%` +
+        `${battery.isCharging ? ' (charging)' : ''}` +
+        `${battery.isLow ? ' · low' : ''} · ${battery.powerSource}`
+      );
+    } catch {
+      // Silent: this is a self-heal poll, not a user-initiated read. A failed one leaves the
+      // stream's last value in place rather than clearing a reading that was fine.
+    }
+  }, [mutate, record]);
+
   // MARK: - Events
 
   /// Authorization moves underneath a running app, and both directions matter.
@@ -433,7 +481,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       record(
         'PROVIDER',
         `auth ${provider.permissionTier} · accuracy ${provider.accuracyAuthorization}` +
-          ` · powerSave ${provider.powerSave ? 'on' : 'off'}`
+        ` · powerSave ${provider.powerSave ? 'on' : 'off'}`
       );
 
       if (
@@ -442,8 +490,8 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       ) {
         setAlwaysRationale(
           'Background authorization was withdrawn while a run was in progress. Tracking continues ' +
-            'while the app is open; it stops as soon as the app is backgrounded. Allow "Always" ' +
-            'again to record complete trips.'
+          'while the app is open; it stops as soon as the app is backgrounded. Allow "Always" ' +
+          'again to record complete trips.'
         );
         record('PERM', `downgraded from always to ${provider.permissionTier}`);
       }
@@ -508,7 +556,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
           record(
             event.decision.verdict.toUpperCase(),
             `${event.decision.reason} · moved ${event.decision.distanceMovedM.toFixed(1)}m` +
-              ` · σ${event.decision.sigma.toFixed(1)}/${event.decision.threshold.toFixed(1)}`
+            ` · σ${event.decision.sigma.toFixed(1)}/${event.decision.threshold.toFixed(1)}`
           );
           break;
 
@@ -566,6 +614,17 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
           record('FENCE', `removed ${event.geofenceId}`);
           break;
 
+        case 'batteryChange':
+          facts.current.battery = event.battery;
+          mutate((snapshot) => ({ ...snapshot, battery: event.battery }));
+          record(
+            'BATTERY',
+            `${event.battery.percent ?? '—'}%` +
+            `${event.battery.isCharging ? ' (charging)' : ''}` +
+            `${event.battery.isLow ? ' · low' : ''}`
+          );
+          break;
+
         case 'powerSaveChange':
           record('POWER', event.enabled ? 'power save on' : 'power save off');
           await refreshPermissions();
@@ -616,9 +675,11 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     }
     hasStarted.current = true;
 
-    let unsubscribeEvents = () => {};
-    let unsubscribeState = () => {};
-    let unsubscribeProvider = () => {};
+    let unsubscribeEvents = () => { };
+    let unsubscribeState = () => { };
+    let unsubscribeProvider = () => { };
+    let unsubscribeBatteryThreshold = () => { };
+    let batteryPollTimer: ReturnType<typeof setInterval> | undefined;
 
     const boot = async () => {
       setState({ kind: 'loading' });
@@ -662,6 +723,8 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
           fastestIntervalMs: 1000,
         },
       });
+      record('TRACKER_LICENSE', `${TRACKER_LICENSE}`);
+      captureLog.note('TRACKER_LICENSE', `${TRACKER_LICENSE}`);
       if (!result.ok) {
         record('READY', `failed — ${result.code}: ${result.message}`);
         // The capture log too, not only the on-screen feed: a run whose configuration was refused
@@ -700,6 +763,18 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
         rebuildSnapshot();
       });
       unsubscribeProvider = onProviderStateChange(handleProviderChange);
+      unsubscribeBatteryThreshold = onBatteryThreshold(
+        BATTERY_THRESHOLDS,
+        (crossing) => {
+          record(
+            'BATTERY',
+            `crossed ${crossing.threshold}% ${crossing.crossing} — now ${crossing.percent}%`
+          );
+        }
+      );
+      batteryPollTimer = setInterval(() => {
+        void reconcileBattery();
+      }, BATTERY_POLL_MS);
     };
 
     void boot();
@@ -708,7 +783,11 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       unsubscribeEvents();
       unsubscribeState();
       unsubscribeProvider();
+      unsubscribeBatteryThreshold();
       unsubscribePoints.current();
+      if (batteryPollTimer) {
+        clearInterval(batteryPollTimer);
+      }
     };
     // Deliberately once, for the life of the app. A second run would open a second subscription and
     // double every line in the log and in the feed.
@@ -753,7 +832,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
   const stop = useCallback(async () => {
     note('NOTE', 'stop requested');
     unsubscribePoints.current();
-    unsubscribePoints.current = () => {};
+    unsubscribePoints.current = () => { };
     const result = await Tracker.stop();
     if (result.ok) {
       record(

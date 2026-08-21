@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { Alert, Text, View } from 'react-native';
 import type {
+  BatteryInfo,
   MotionState,
   PermissionTier,
+  PowerSource,
 } from '@fieldtrack360/react-native-tracker';
 import { spacing, useTheme } from '../theme';
 import {
@@ -67,7 +69,7 @@ export function HomeScreen({
     Alert.alert(
       'Clear the capture log?',
       'Every run banner and every recorded decision in the log is deleted. Share it first if this ' +
-        'run is not finished being explained.',
+      'run is not finished being explained.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -82,7 +84,15 @@ export function HomeScreen({
   return (
     <Screen>
       {/* MARK: - Status */}
-      <DiagnosticCard title="Status" glyph="📡">
+      <DiagnosticCard
+        title="Status"
+        glyph="📡"
+        right={
+          snapshot?.battery ? (
+            <BatteryBadge battery={snapshot.battery} theme={theme} />
+          ) : undefined
+        }
+      >
         {state.kind === 'idle' ? (
           <Note>ready() has not completed yet.</Note>
         ) : null}
@@ -115,6 +125,25 @@ export function HomeScreen({
             <FactRow name="Accuracy" value={snapshot.accuracy} />
             <FactRow name="Session" value={shortId(snapshot.sessionId)} />
             <FactRow name="Accepted points" value={snapshot.pointCount} />
+            {snapshot.battery ? (
+              <>
+                <FactRow
+                  name="Battery"
+                  value={
+                    snapshot.battery.percent != null
+                      ? `${snapshot.battery.percent}%${snapshot.battery.isCharging ? ' (charging)' : ''}`
+                      : 'unknown'
+                  }
+                  tint={
+                    snapshot.battery.isLow
+                      ? theme.status.bad
+                      : snapshot.battery.isCharging
+                        ? theme.status.good
+                        : undefined
+                  }
+                />
+              </>
+            ) : null}
             {snapshot.detectedActivity ? (
               <FactRow name="Activity" value={snapshot.detectedActivity} />
             ) : null}
@@ -343,6 +372,51 @@ export function HomeScreen({
       </DiagnosticCard>
     </Screen>
   );
+}
+
+// MARK: - Battery badge
+
+/// Header glyph on Status: charging beats low beats normal, since a charging-but-low device is
+/// answering "why am I still not full" rather than "am I about to die".
+function BatteryBadge({
+  battery,
+  theme,
+}: {
+  battery: BatteryInfo;
+  theme: ReturnType<typeof useTheme>;
+}) {
+  const glyph = battery.isCharging ? '🔌' : battery.isLow ? '🪫' : '🔋';
+  const tint = battery.isLow
+    ? theme.status.bad
+    : battery.isCharging
+      ? theme.status.good
+      : theme.label;
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+      <Text style={{ fontSize: 16 }}>{glyph}</Text>
+      <Text style={{ color: tint, fontWeight: '600', fontSize: 13 }}>
+        {battery.percent != null ? `${battery.percent}%` : '—'}
+      </Text>
+    </View>
+  );
+}
+
+function powerSourceLabel(source: PowerSource): string {
+  switch (source) {
+    case 'none':
+      return 'On battery';
+    case 'ac':
+      return 'AC';
+    case 'usb':
+      return 'USB';
+    case 'wireless':
+      return 'Wireless';
+    case 'dock':
+      return 'Dock';
+    default:
+      return 'Unknown';
+  }
 }
 
 // MARK: - Tints
