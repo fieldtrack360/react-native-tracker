@@ -265,37 +265,82 @@ Expo Go cannot load this SDK — use a development build.
 
 ## Licensing
 
-Tracker is licensed software. A token is **bundle-identifier-bound and verified offline** — it is
-not a network secret, but the Android SDK ships a `FieldTrackLicenseHardcoded` lint warning, so
-feed it from a gitignored file rather than a literal in source.
+Tracker is licensed software, and **the two platforms enforce it differently as of Android
+`1.0.1`** — the Android SDK removed its offline signature gate, iOS kept its own. Read the
+enforcement table below before you build a licence-gating screen on top of `ready()`.
 
-There is **one way to supply the token: `TrackerConfig.license`, applied at `ready()`** — the same
-call on both platforms.
+### Getting a licence
+
+Buy one at **<https://fieldtrack360-sdk.devstree.in/>**. There is a **free 30-day trial**, no card
+required, if you want to evaluate the SDK on one application first.
+
+What matters when you buy:
+
+- **One application key covers both platforms.** The same key is valid for Android, iOS, React
+  Native and Flutter, so this bridge needs exactly one token — not one per platform. That is why
+  the plugin exposes a single `license` field rather than an `iosLicense` / `androidLicense` pair.
+- **A key is bound to one application identifier**, for unlimited users and devices. You name that
+  identifier during checkout, so have your `applicationId` / bundle identifier decided first, and
+  budget a key per app.
+- **Perpetual.** A one-time purchase with no renewal date, so a licence cannot lapse mid-deployment.
+  The bundled window of SDK updates does end; the licence itself does not.
+
+The token is shown on screen at the end of checkout and emailed to you. Drop it straight into the
+config field below — there is nothing to register and no client secret to wire up.
+
+### Supplying the token
+
+There is **one way: `TrackerConfig.license`, applied at `ready()`** — the same call on both
+platforms.
 
 ```ts
 await Tracker.ready({ license: TRACKER_LICENSE, /* …the rest of your config */ });
 ```
 
-The native metadata routes are **no longer used by this plugin**. The Android integration guide
-withdrew the manifest `<meta-data>` route outright, and while iOS still reads an `Info.plist`
-`TrackerLicense` key, keeping a second mechanism alive on one platform only buys two places that
-can disagree. The plugin therefore exposes no `iosLicense` / `androidLicense` option: put the token
-in your config object and it reaches both SDKs through the same field.
+There is no `iosLicense` / `androidLicense` option and no native manifest or `Info.plist` route to
+configure — one field reaches both platforms, so there is no second place that can disagree with it.
 
-> **Token prefix.** Tokens are currently issued with a **`TRACKIT-`** prefix on both platforms. A
-> mismatched prefix fails the offline gate with `licenseInvalid` and the message
-> `"License token has the wrong prefix"`. Debuggable installs are waived, so this only ever appears
-> on a release build; if a token you were issued starts with anything else, confirm with your
-> vendor before you cut one.
+The `license` field is **never persisted** with the rest of your config: it is re-read on every
+`ready()` call. This is the one field `reset: false` does not freeze, so an updated token always
+wins over a stale one left on disk.
 
-Debug/simulator builds and debuggable Android installs are licence-**waived**, so the token can be
-absent entirely during development. Failures resolve as `licenseMissing`, `licenseInvalid`, or
-`licenseBundleMismatch`. **Both platforms** additionally run an online revocation check that can add
-`licenseRevoked` and `licenseExpired`, which **stop tracking**. Neither blocks startup: the check is fail-open,
-so no network, an unverifiable reply or a server error all leave the tracker recording. On iOS
-`start()` stays refused until the server reports the licence active again, and the same two also
-arrive as `licenseDeactivated` with the admin's note; on Android they arrive as `licenseChecked`
-(see [Licence status on Android](#licence-status-on-android)).
+> **Token prefix.** Tokens are currently issued with a **`TRACKIT-`** prefix. If a token you were
+> issued starts with anything else, check it against what
+> [the licence portal](https://fieldtrack360-sdk.devstree.in/) gave you before you cut a release.
+
+### What actually gets enforced
+
+|  | iOS | Android |
+|---|---|---|
+| Token checked offline at `ready()` | **yes** — signature + bundle binding | **no**, removed in `1.0.1` |
+| Missing token blocks `ready()` | **yes** (`licenseMissing`) | **no** — `ready()` succeeds |
+| Wrong bundle / malformed token blocks `ready()` | **yes** (`licenseBundleMismatch`, `licenseInvalid`) | **no** |
+| Server says revoked / expired | stops tracking (`licenseRevoked`, `licenseExpired`) | stops tracking (same two codes) |
+
+**Do not gate your UI on `ready()` returning a licence error — it never will on Android.** A build
+with no token at all starts and tracks normally there; the only enforcement left is the online
+revocation check, which reports `licenseRevoked` / `licenseExpired` **after** startup. If you need
+a hard "unlicensed" state on both platforms, own that check yourself.
+
+`licenseMissing` and `licenseBundleMismatch` are therefore **iOS-only in practice**. They remain in
+the `ErrorCode` union because the Android enum still declares them, but nothing on Android emits
+them. `licenseInvalid` survives on both, with different force: a hard `ready()` failure on iOS, and
+on Android a post-startup diagnostic from the online check that does **not** stop tracking.
+
+### Development
+
+Debug and simulator builds on iOS are licence-waived, and Android now needs no token at all, so a
+clone with no licence runs on both. The consequence is the same on either platform: **a missing
+token is invisible until an iOS release build**, where `ready()` resolves
+`{ ok: false, code: 'licenseMissing' }` and nothing downstream works. Test a release build before
+you need one.
+
+On Android the release-only **integrity** layer can additionally end an in-flight session with
+`deviceIntegrityBlocked`; treat that event as a stop, not a warning.
+
+Both platforms run the online revocation check. It never blocks startup and is **fail-open** — no
+network, an unverifiable reply or a server error all leave the tracker recording. See
+[Licence status on Android](#licence-status-on-android) for the readback surface.
 
 ### Getting the token into JS
 
@@ -308,7 +353,7 @@ carrying a token exists in the repository to copy or to leak:
 
 ```
 # example/.env
-TRACKER_LICENSE=TRACKER-eyJ…
+TRACKER_LICENSE=TRACKIT-eyJ…
 ```
 
 ```js
@@ -378,39 +423,6 @@ status readback — `Tracker.android.licenseInfo()` / `checkLicense()` reject `u
 there. Instead iOS speaks up only to deactivate, through `licenseDeactivated` (an untyped `status`
 string plus the admin's note) and the matching `error` code, and refuses `start()` until the server
 reports the licence active again. Do not write one handler assuming both shapes.
-
-### Why there is no `builder()` in JavaScript
-
-The native SDKs take the token through a config builder:
-
-```kotlin
-// Android SDK, natively
-Tracker.getInstance(context).ready(
-    TrackerConfig.builder()
-        .license(BuildConfig.FIELDTRACK_LICENSE)
-        .build()
-)
-```
-
-**That builder is exactly what `Tracker.ready(config)` is in this plugin.** There is nothing left to
-build: the object you pass *is* the builder's argument list. The bridge decodes it into the
-platform's own `TrackerConfig` — every key you set is applied, every key you omit keeps the SDK
-default — and hands it to the native `ready()` before the licence gate runs.
-
-Validation differs from the native builders in one way worth knowing: a config the native `build()`
-would reject arrives here as a **rejected Promise with `invalidConfig`**, not a thrown builder
-error — the JSON is decoded and validated on the native side inside `ready()`.
-
-The `license` field is never persisted with the rest of the config. It is re-read on every
-`ready()`, so an updated token never loses to a stale one resurrected from disk.
-
-### Development vs release
-
-Debug/simulator builds run licence-waived on both platforms, so a missing token stays invisible
-until the first release build — where `ready()` resolves `{ ok: false, code: 'licenseMissing' }`
-and nothing downstream works. Test a release build before you need one. On Android the
-release-only **integrity** layer can additionally end an in-flight session with
-`deviceIntegrityBlocked`; treat that event as a stop, not a warning.
 
 ---
 
@@ -724,8 +736,10 @@ if (!started.ok) {
     case 'backgroundPermissionMissing': /* degraded — foreground-only capture */ break;
     case 'locationDisabled':            /* device location services are off */ break;
     case 'licenseMissing':
-    case 'licenseInvalid':
-    case 'licenseBundleMismatch':       /* release build without a valid token */ break;
+    case 'licenseBundleMismatch':       /* iOS release build without a valid token */ break;
+    case 'licenseInvalid':              /* iOS: hard failure. Android: diagnostic only */ break;
+    case 'licenseRevoked':
+    case 'licenseExpired':              /* both platforms — the server withdrew it */ break;
     default:                            console.warn(started.code, started.message);
   }
 } else {
@@ -1447,8 +1461,9 @@ Fetch-script environment variables (all optional):
 
 | Symptom | Cause / fix |
 |---|---|
-| `licenseMissing` in a release build, fine in debug | Both platforms waive debug/debuggable builds. Supply the token via `Tracker.ready({ license })` — the only route |
-| `licenseBundleMismatch` | The token was issued for a different bundle id / application id (including `.dev` / `.staging` variants). Each app id needs its own token or an explicitly licensed alias |
+| `licenseMissing` in a release build, fine in debug | **iOS only** — Android no longer checks the token locally. Supply the token via `Tracker.ready({ license })`, the only route |
+| `licenseBundleMismatch` | **iOS only.** The token was issued for a different bundle id (including `.dev` / `.staging` variants). Each app id needs its own token or an explicitly licensed alias |
+| Android release build runs with no licence at all | Expected since Android `1.0.1`: the offline gate was removed, so only the online revocation check enforces anything. Do not read a successful `ready()` on Android as "licensed" |
 | `licenseInvalid` | Truncated or wrapped token, or one from a different key generation |
 | `licenseInvalid`, or `"wrong prefix"` in the log | Prefix mismatch. Both current guides document `TRACKIT-` tokens; confirm with your vendor if yours differs |
 | `invalidConfig` rejection from `ready()` | The config object failed to decode natively — usually an out-of-range value or a field in the wrong namespace |
@@ -1479,40 +1494,9 @@ Fetch-script environment variables (all optional):
 ---
 
 ## Known limitations
-
-Stated, not discovered:
-
-- **iOS 17.0 / Android API 26 minimums**, and **compileSdk 36 + Kotlin 2.0+** on Android — not
-  adjustable from the bridge.
-- **`getCurrentLocation` diverges on whether the fix is stored** — the iOS SDK feeds its ingest
-  consumer by default, so with a session open the one-shot adds a judged point to the track;
-  Android's is snapshot-only. Its failure codes diverge too: iOS names `oneShotBusy`,
-  `oneShotCircuitOpen` and `fixRejected` (none retryable) on top of `fixTimeout`; Android reports
-  `fixTimeout` for all of them.
-- **`ios.changePace`, `ios.requestMotion`, `ios.getMotionAuthorization`,
-  `ios.requestTemporaryFullAccuracy` are iOS-only**; the whole `Tracker.android` namespace is
-  Android-only.
-- **Geofence dwell (`dwellAfterMs`, `geofenceDwell`), `licenseDeactivated` and `trackingGap` are
-  iOS-only**; `integrityChange` and `licenseChecked` are Android-only. `geofenceAdded` /
-  `geofenceRemoved` now reach **both**. Setting `dwellAfterMs` or `notifyOnEntry/Exit: false` on
-  Android is refused with `invalidConfig`.
-- **Geofence crossings delivered to a relaunched process never reach a live JS subscriber** — read
-  them from `Tracker.geofences.getEvents()`.
-- **A JS-implemented road-snap provider is not supported** (the native protocol is invoked inside
-  `buildTrack`). OSRM is configurable via `setOsrmSnapProvider`.
-- **The two sync network gates are not unified** — iOS `requiresNetworkConnectivity` (any
-  connectivity) and Android `requiresUnmeteredNetwork` (unmetered only) are different policies.
-  `TrackerSync.onSyncEvent` runs on both platforms, but **only `httpResponse` is emitted on
-  Android** — its SDK `SyncEvent` has no other case. **`forbidden` (HTTP 403) is Android-only** and
-  is not the same thing as `authExpired`.
-- **`activityConfidenceMin` differs by platform** (66 iOS / 75 Android, by design), and
-  `activityRecognitionIntervalMs` is a real battery control on Android but saves nothing on iOS.
-- **Map renderer `options` are platform-divergent and unmerged** on both components.
-- **`<LiveTrackMapView update>` is a liveness signal only on iOS** — the native view reads the SDK's
-  own live stream for geometry.
-- **Android needs a Google Maps API key to render the map components** (nothing else in the SDK
-  needs one). Nothing else about the Android build needs host configuration.
-- Expo Go is not supported — the SDK needs a development/prebuild build.
+- **Android needs a Google Maps API key to render the map components** — nothing else in the SDK
+  needs one, and nothing else about the Android build needs host configuration.
+- **Expo Go is not supported** — use a development build / prebuild.
 
 ---
 

@@ -190,7 +190,7 @@
     "version": "0.63.0"
   },
   "tracker": {
-    "android": "v1.0.1-alpha-10",
+    "android": "1.0.1",
     "ios": {
       "tag": "1.0.0",
       "commit": "b4afe5ba989465bd9c8d5f5bb6c2e01327221d10",
