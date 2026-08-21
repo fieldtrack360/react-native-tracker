@@ -121,14 +121,8 @@ export function currentSession(): Promise<TrackSession | null> {
 }
 
 // ── Current location ──────────────────────────────────────────────────────────────
-// feedIngestor:true rejects on Android (unsupportedOnPlatform). iOS collapses every failure to
-// fixTimeout (SDK defect) — read message, do not branch on code for this method.
-export function getCurrentLocation(options?: {
-  feedIngestor?: boolean;
-}): Promise<TrackerResult<TrackFix>> {
-  return TrackerNative.getCurrentLocation(obj(options)) as Promise<
-    TrackerResult<TrackFix>
-  >;
+export function getCurrentLocation(): Promise<TrackerResult<TrackFix>> {
+  return TrackerNative.getCurrentLocation() as Promise<TrackerResult<TrackFix>>;
 }
 
 // ── Plotting ────────────────────────────────────────────────────────────────────
@@ -237,8 +231,6 @@ const geofences = {
 
 // ── iOS-only namespace — rejects unsupportedOnPlatform on Android ─────────────────
 const ios = {
-  exportFixture: (sessionId: string, name: string): Promise<string> =>
-    TrackerNative.iosExportFixture(sessionId, name),
   changePace: (isMoving: boolean): Promise<TrackerResult<void>> =>
     TrackerNative.iosChangePace(isMoving) as Promise<TrackerResult<void>>,
   requestMotion: (): Promise<MotionAuthorization> =>

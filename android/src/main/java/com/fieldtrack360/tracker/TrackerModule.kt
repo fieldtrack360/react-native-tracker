@@ -63,8 +63,8 @@ class TrackerModule(reactContext: ReactApplicationContext) :
     TrackerReadsHelper.currentSession(this, promise)
 
   // ── Current location ──────────────────────────────────────────────────────────
-  override fun getCurrentLocation(options: ReadableMap?, promise: Promise) =
-    CurrentLocationBridge.getCurrentLocation(this, options, promise)
+  override fun getCurrentLocation(promise: Promise) =
+    CurrentLocationBridge.getCurrentLocation(this, promise)
 
   // ── Plotting ──────────────────────────────────────────────────────────────────
   override fun buildTrack(query: ReadableMap?, options: ReadableMap?, promise: Promise) =
@@ -108,9 +108,6 @@ class TrackerModule(reactContext: ReactApplicationContext) :
 
   override fun getBatteryInfo(promise: Promise) =
     Diagnostics.getBatteryInfo(tracker, promise)
-
-  override fun iosExportFixture(sessionId: String, name: String, promise: Promise) =
-    Diagnostics.iosExportFixture(promise)
 
   override fun iosChangePace(isMoving: Boolean, promise: Promise) =
     Diagnostics.iosChangePace(promise)

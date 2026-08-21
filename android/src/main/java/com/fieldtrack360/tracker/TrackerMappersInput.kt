@@ -146,7 +146,10 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
 
   // ── top level ────────────────────────────────────────────────────────────
   if (root.has("license")) {
-    config = config.copy(license = root.optString("license"))
+    val license = root.optString("license").trim()
+    if (license.isNotEmpty()) {
+      config = config.copy(license = license)
+    }
   }
   if (root.has("reset")) {
     config = config.copy(reset = root.optBoolean("reset"))

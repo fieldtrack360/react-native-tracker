@@ -98,14 +98,6 @@ object Diagnostics {
     }
   }
 
-  // ios.exportFixture — iOS-only; not a public Android member. Bad argument for this platform.
-  fun iosExportFixture(promise: Promise) {
-    promise.reject(
-      "unsupportedOnPlatform",
-      "iosExportFixture is iOS-only; Tracker Android does not expose exportFixture",
-    )
-  }
-
   // ios.changePace — iOS-only; changePace is explicitly not a public Android method.
   fun iosChangePace(promise: Promise) {
     promise.reject(

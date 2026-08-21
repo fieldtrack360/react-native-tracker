@@ -36,7 +36,6 @@ These catch bridge defects that would otherwise surface in the field:
 | Full permission ladder (incl. denial / permanent denial) both platforms | the Android Activity-bound shim, ladder order |
 | Motion pill leaves `stopped` on Android | `state.motionState` being written |
 | A heartbeat arrives on Android | heartbeat emission |
-| `feedIngestor: true` rejects on Android, stores a fix on iOS | the divergence |
 | A recorded session renders on **Track** on both platforms | the whole Track mapper tree |
 | A fence armed at the current position fires `enter` immediately on iOS | the synthetic entry |
 | Kill app, cross a fence, relaunch, `getEvents()` shows it | the live-only-subscription trap |
@@ -54,7 +53,6 @@ one), so it does not survive a relaunch.
 | **Clear** | Confirms, then wipes the log and re-emits the run banner. Do this before a field run, `Share` after. |
 | **Dump** | Writes raw fixes, decisions, stored points and a track summary for the *resolved* session into the log. Disabled with no session. |
 | **One fix** | One-shot `getCurrentLocation()` reading, reported in the log — never stored to the track. The only button here that works with no session and while tracking is stopped. |
-| **Fixture** | iOS-only: exports the resolved session as a fixture JSON and shares it via `ios.exportFixture`. On Android it is not disabled but every tap rejects (`unsupportedOnPlatform`) and logs a `failed` line — Android has no fixture exporter. |
 
 ## No `Platform.OS`
 

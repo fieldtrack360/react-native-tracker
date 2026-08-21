@@ -177,7 +177,6 @@ type TrackingContextValue = {
   clearCaptureLog: () => void;
   dumpSession: () => Promise<void>;
   showCurrentLocation: () => Promise<void>;
-  recordFixture: () => Promise<void>;
 
   /** For the tabs that write their own lines into the shared record — the Fences and Sync screens
    *  both do, because a crossing is often the explanation for what the tracking feed did next. */
@@ -1018,9 +1017,8 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
   /// One fix, without a session — the `getCurrentLocation()` path.
   ///
   /// Deliberately callable while stopped, because that is the case it exists for: a host asking
-  /// "where am I" before any track is being recorded. `feedIngestor` is left at its default, so the
-  /// fix is reported and never stored: a button on a diagnostics screen must not add points to the
-  /// track being measured.
+  /// "where am I" before any track is being recorded. The fix is reported and never stored: a
+  /// button on a diagnostics screen must not add points to the track being measured.
   const showCurrentLocation = useCallback(async () => {
     const result = await Tracker.getCurrentLocation();
     if (result.ok) {
@@ -1038,27 +1036,6 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       record('ONESHOT', `${result.code} — ${result.message}`);
     }
   }, [note, record]);
-
-  /// Step 4 of the field-run protocol: export a fixture for anything anomalous, BEFORE proposing a
-  /// constant change. iOS-only on the bridge; the namespace is always present and rejects on
-  /// Android, so there is no platform branch here either.
-  const recordFixture = useCallback(async () => {
-    const sessionId =
-      state.kind === 'loaded' ? state.value.sessionId : undefined;
-    if (!sessionId) {
-      record('FIXTURE', 'no session selected');
-      return;
-    }
-    const name = `session-${sessionId.slice(0, 8)}-${Math.floor(Date.now() / 1000)}`;
-    try {
-      const json = await Tracker.ios.exportFixture(sessionId, name);
-      note('FIXTURE', `recorded ${name}`);
-      record('FIXTURE', `recorded ${name} (${json.length} bytes) — sharing`);
-      await Share.share({ message: json });
-    } catch (error) {
-      record('FIXTURE', `failed — ${String(error)}`);
-    }
-  }, [note, record, state]);
 
   // MARK: - Session pinning
 
@@ -1111,7 +1088,6 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       clearCaptureLog,
       dumpSession,
       showCurrentLocation,
-      recordFixture,
       note,
     }),
     [
@@ -1124,7 +1100,6 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       log,
       note,
       openAppSettings,
-      recordFixture,
       refresh,
       refreshPermissions,
       requestActivityRecognition,

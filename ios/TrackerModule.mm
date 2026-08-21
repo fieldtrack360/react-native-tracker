@@ -165,14 +165,11 @@ static NSDictionary *RCTTrackerTrackOptionsDict(JS::NativeTracker::TrackOptionsW
 }
 
 // ── Current location ──────────────────────────────────────────────────────────
-- (void)getCurrentLocation:(JS::NativeTracker::SpecGetCurrentLocationOptions &)options
-                   resolve:(RCTPromiseResolveBlock)resolve
+- (void)getCurrentLocation:(RCTPromiseResolveBlock)resolve
                     reject:(RCTPromiseRejectBlock)reject
 {
-  BOOL feedIngestor = options.feedIngestor().value_or(false);
-  [TrackerImpl getCurrentLocationFeedIngestor:feedIngestor
-                                    onResolve:^(NSDictionary *result) { resolve(result); }
-                                     onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+  [TrackerImpl getCurrentLocationOnResolve:^(NSDictionary *result) { resolve(result); }
+                                  onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
 // ── Plotting ──────────────────────────────────────────────────────────────────
@@ -307,17 +304,6 @@ static NSDictionary *RCTTrackerTrackOptionsDict(JS::NativeTracker::TrackOptionsW
 {
   [TrackerImpl getSensorsOnResolve:^(NSDictionary *sensors) { resolve(sensors); }
                           onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
-}
-
-- (void)iosExportFixture:(NSString *)sessionId
-                    name:(NSString *)name
-                 resolve:(RCTPromiseResolveBlock)resolve
-                  reject:(RCTPromiseRejectBlock)reject
-{
-  [TrackerImpl exportFixtureSessionId:sessionId
-                                name:name
-                           onResolve:^(NSString *json) { resolve(json); }
-                            onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
 - (void)iosChangePace:(BOOL)isMoving

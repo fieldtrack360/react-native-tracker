@@ -6,8 +6,8 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 // (`JS::NativeTracker::PointQueryWire &`), and the generated accessors read the struct's backing
 // dictionary unconditionally:
 //
-//     inline std::optional<bool> …SpecGetCurrentLocationOptions::feedIngestor() const
-//     { id const p = _v[@"feedIngestor"]; … }
+//     inline std::optional<double> …SpecPointQueryWire::limit() const
+//     { id const p = _v[@"limit"]; … }
 //
 // When JS passes `undefined`, React Native binds that reference to nothing and the first accessor
 // call dereferences null — EXC_BAD_ACCESS at 0x0 on the TurboModule queue, before any of this
@@ -21,7 +21,6 @@ import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 const mockNative = {
   getPoints: jest.fn(async () => '[]'),
   getCount: jest.fn(async () => 0),
-  getCurrentLocation: jest.fn(async () => ({ ok: true, value: {} })),
   buildTrack: jest.fn(async () => '{}'),
   exportPolylineJson: jest.fn(async () => '{}'),
   exportGeoJson: jest.fn(async () => '{}'),
@@ -49,13 +48,6 @@ describe('optional object arguments', () => {
     for (const fn of Object.values(mockNative)) {
       fn.mockClear();
     }
-  });
-
-  it('getCurrentLocation() called with no options forwards an object', async () => {
-    await Tracker.getCurrentLocation();
-    expect(mockNative.getCurrentLocation).toHaveBeenCalledWith(
-      expect.any(Object)
-    );
   });
 
   it('getPoints() called with no query forwards an object', async () => {

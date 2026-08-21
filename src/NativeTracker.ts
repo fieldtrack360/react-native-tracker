@@ -137,9 +137,7 @@ export interface Spec extends TurboModule {
   currentSession(): Promise<TrackSessionWire | null>;
 
   // ── Current location ──────────────────────────────────────────────────────────
-  // options.feedIngestor:true REJECTS on Android (unsupportedOnPlatform). iOS collapses every
-  // failure cause to fixTimeout (SDK defect) — read message, do not branch on code here.
-  getCurrentLocation(options?: { feedIngestor?: boolean }): Promise<{
+  getCurrentLocation(): Promise<{
     ok: boolean;
     value?: TrackFixWire;
     code?: string;
@@ -204,7 +202,6 @@ export interface Spec extends TurboModule {
     };
   }>;
   // iOS-only; Android REJECTS unsupportedOnPlatform.
-  iosExportFixture(sessionId: string, name: string): Promise<string>;
   iosChangePace(
     isMoving: boolean
   ): Promise<{ ok: boolean; code?: string; message?: string }>;

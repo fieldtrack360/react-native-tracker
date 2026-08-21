@@ -9,7 +9,7 @@ import TrackerGeo
 // rejection; the changePace domain result RESOLVES ok:false and never rejects.
 //
 // The facade (`Tracker.shared`) is Sendable and these members are NOT MainActor-isolated
-// (getRawFixes/getRawPoints/getDecisions/offerFix/exportFixture/changePace are async on the
+// (getRawFixes/getRawPoints/getDecisions/offerFix/changePace are async on the
 // Sendable class; getSensors is synchronous), so they run from a plain detached Task.
 extension TrackerImpl {
 
@@ -82,24 +82,6 @@ extension TrackerImpl {
   public static func getSensors(onResolve: @escaping (NSDictionary) -> Void,
                                 onReject: @escaping (NSString, NSString) -> Void) {
     onResolve(TrackerMappers.sensorsDict(Tracker.shared.getSensors()) as NSDictionary)
-  }
-
-  // ios.exportFixture(sessionId, name) — iOS-only; returns a package-scoped fixture as a JSON
-  // string (the string is all that crosses). `async throws` → a throw rejects.
-  @objc(exportFixtureSessionId:name:onResolve:onReject:)
-  public static func exportFixture(sessionId: NSString,
-                                   name: NSString,
-                                   onResolve: @escaping (NSString) -> Void,
-                                   onReject: @escaping (NSString, NSString) -> Void) {
-    Task {
-      do {
-        let json = try await Tracker.shared.exportFixture(sessionID: sessionId as String,
-                                                          name: name as String)
-        onResolve(json as NSString)
-      } catch {
-        onReject("internalError" as NSString, error.localizedDescription as NSString)
-      }
-    }
   }
 
   // ios.changePace(isMoving) — iOS-only; TrackerResult<Void>. A domain failure RESOLVES

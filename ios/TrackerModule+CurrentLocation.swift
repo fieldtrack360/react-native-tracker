@@ -4,25 +4,24 @@ import TrackerGeo
 
 // currentLocation — Swift side of the bridge. TrackerModule.mm owns the RCTPromise blocks
 // and forwards here through TrackerImpl. Domain failures resolve `ok:false`;
-// iOS has NO bridge-fault path for this method (feedIngestor IS supported on iOS — see surface
-// line 346), so this always resolves and never rejects. All wire vocabulary/renames stay in
-// TrackerMappers (rule 2).
+// iOS has NO bridge-fault path for this method, so this always resolves and never rejects.
+// All wire vocabulary/renames stay in TrackerMappers (rule 2).
 extension TrackerImpl {
 
-  /// getCurrentLocation(feedIngestor:) → TrackerResult<TrackFix>.
+  /// getCurrentLocation() → TrackerResult<TrackFix>.
   /// Surface (TrackerCore.swiftinterface:346):
   ///   `final public func getCurrentLocation(feedIngestor: Swift.Bool = false) async
   ///      -> TrackerCore.TrackerResult<TrackerGeo.TrackFix>`
-  /// feedIngestor is forwarded verbatim — Android is the side that rejects it, not iOS.
+  /// feedIngestor is left at its default so the bridge matches Android, where the SDK never feeds
+  /// the ingestor: the fix is reported and never persisted.
   /// The facade func is nonisolated `async` (`Tracker` is `Sendable`; the method carries no
   /// `@MainActor`, unlike `permissions()`/`getSensors()`), so a plain `Task` is the correct actor
   /// context — no MainActor hop is needed or wanted here.
-  @objc(getCurrentLocationFeedIngestor:onResolve:onReject:)
-  public static func getCurrentLocation(feedIngestor: Bool,
-                                        onResolve: @escaping (NSDictionary) -> Void,
+  @objc(getCurrentLocationOnResolve:onReject:)
+  public static func getCurrentLocation(onResolve: @escaping (NSDictionary) -> Void,
                                         onReject: @escaping (NSString, NSString) -> Void) {
     Task {
-      let result = await Tracker.shared.getCurrentLocation(feedIngestor: feedIngestor)
+      let result = await Tracker.shared.getCurrentLocation()
       switch result {
       case .success(let fix):
         // ok:true — `value` is the typed TrackFix wire shape from the foundation core-shape mapper.

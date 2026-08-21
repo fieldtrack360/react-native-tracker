@@ -325,12 +325,6 @@ export function HomeScreen({
             glyph="📍"
             onPress={() => void tracking.showCurrentLocation()}
           />
-          <ActionButton
-            title="Fixture"
-            glyph="📦"
-            disabled={!tracking.resolvedSessionId}
-            onPress={() => void tracking.recordFixture()}
-          />
         </ActionRow>
 
         <Note>

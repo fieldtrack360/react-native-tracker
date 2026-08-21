@@ -138,8 +138,13 @@ extension TrackerMappers {
     let ios = root["ios"] as? [String: Any] ?? [:]
 
     // ── top level ────────────────────────────────────────────────────────────
+    // Blank == absent, matching the Android mapper key-for-key: a `.env` with an empty
+    // TRACKER_LICENSE must surface as licenseMissing, not as a malformed token.
     if let license = root["license"] as? String {
-      config.license = license
+      let trimmed = license.trimmingCharacters(in: .whitespacesAndNewlines)
+      if !trimmed.isEmpty {
+        config.license = trimmed
+      }
     }
     if let reset = root["reset"] as? NSNumber {
       config.reset = reset.boolValue

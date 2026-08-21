@@ -629,8 +629,7 @@ if (fix.ok) {
   console.warn(fix.message);
 }
 
-// iOS only: also feed the fix into the capture pipeline. Rejects `unsupportedOnPlatform` on Android.
-await Tracker.ios ? Tracker.getCurrentLocation({ feedIngestor: true }) : null;
+// The fix is reported, never stored: it adds no point to any session on either platform.
 ```
 
 ### Reading stored points
@@ -931,7 +930,7 @@ availability is **both platforms**.
 
 | Method | Parameters | Returns | Notes |
 |---|---|---|---|
-| `getCurrentLocation(options?)` | `options?: { feedIngestor?: boolean }` | `Promise<TrackerResult<TrackFix>>` | `feedIngestor: true` is **iOS only** and rejects `unsupportedOnPlatform` on Android. On iOS every failure of this method reports `fixTimeout` — read `message`, do not branch on `code` |
+| `getCurrentLocation()` | — | `Promise<TrackerResult<TrackFix>>` | The fix is reported, never stored. On iOS every failure of this method reports `fixTimeout` — read `message`, do not branch on `code` |
 
 ### Plotting
 
@@ -992,7 +991,6 @@ availability is **both platforms**.
 
 | Method | Parameters | Returns |
 |---|---|---|
-| `exportFixture(sessionId, name)` | `string`, `string` | `Promise<string>` |
 | `changePace(isMoving)` | `boolean` | `Promise<TrackerResult<void>>` |
 | `requestMotion()` | — | `Promise<MotionAuthorization>` |
 | `getMotionAuthorization()` | — | `Promise<MotionAuthorization>` |
@@ -1458,11 +1456,10 @@ Stated, not discovered:
 
 - **iOS 17.0 / Android API 26 minimums**, and **compileSdk 37 + Kotlin 2.4** on Android — not
   adjustable from the bridge.
-- **`getCurrentLocation({ feedIngestor: true })` is iOS-only** and rejects on Android.
 - **`getCurrentLocation` failures all report `fixTimeout` on iOS** — timeout, missing
   authorization and a concurrent call share one `code`; only `message` distinguishes them. Do not
   treat it as "retry later".
-- **`ios.exportFixture`, `ios.changePace`, `ios.requestMotion`, `ios.getMotionAuthorization`,
+- **`ios.changePace`, `ios.requestMotion`, `ios.getMotionAuthorization`,
   `ios.requestTemporaryFullAccuracy` are iOS-only**; the whole `Tracker.android` namespace is
   Android-only.
 - **Geofence dwell (`dwellAfterMs`, `geofenceDwell`), `licenseDeactivated` and `trackingGap` are
