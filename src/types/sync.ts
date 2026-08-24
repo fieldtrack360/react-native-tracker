@@ -1,6 +1,16 @@
 // Sync. Config is mostly divergent; the two network gates are NOT unified — "any
 // connectivity" and "unmetered only" are different policies. Both sit in their platform namespace.
 
+/** Any JSON value. Both SDKs take arbitrary JSON in `extraParams` and keep the type on the wire —
+ *  a number stays a number, a boolean stays a boolean; nothing is stringified. */
+export type SyncParamValue =
+  | string
+  | number
+  | boolean
+  | null
+  | SyncParamValue[]
+  | { [key: string]: SyncParamValue };
+
 export type SyncConfig = {
   // shared
   url: string;
@@ -9,6 +19,24 @@ export type SyncConfig = {
    *  `invalidConfig` at configure() time. iOS passes the verb through unrestricted. */
   method?: string;
   headers?: Record<string, string>;
+  /** Merged into the TOP LEVEL of every request body, beside the `location` array and before it,
+   *  in insertion order. For what belongs to the REQUEST rather than to any point — a tenant id, a
+   *  device label, an API version — and that a header cannot carry because the endpoint reads its
+   *  body. Static config, like `headers`: a rotating token belongs in a fresh `configure()` call.
+   *  With none set the body is byte-identical to a build without this field, so it is additive and
+   *  an existing backend needs no change.
+   *
+   *  `location` is RESERVED — it is the batch itself — and both SDKs refuse it.
+   *
+   *  `null` DIVERGES and is the one value that does not survive both crossings. iOS models it
+   *  (`SyncValue.null`) and encodes JSON `null`; the Android SDK has no null value ("omit the key
+   *  instead"), so the Android mapper DROPS a null-valued key. A null inside an ARRAY cannot be
+   *  dropped without shifting every element after it, so Android rejects that as `invalidConfig`
+   *  rather than silently renumbering. Send a sentinel if the key must reach both bodies.
+   *
+   *  Android additionally caps nesting at 10 levels and rejects an unserializable value at
+   *  `configure()` time, naming the key, rather than failing mid-drain. */
+  extraParams?: Record<string, SyncParamValue>;
   /** Default TRUE on both platforms — upload as points arrive. Omitting it does NOT mean off.
    *  With it off the host drives uploads through `syncNow()` / `requestSync()`. */
   autoSync?: boolean;

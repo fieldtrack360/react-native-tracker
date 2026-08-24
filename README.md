@@ -894,6 +894,8 @@ await TrackerSync.configure({
   url: 'https://api.example.com/v1/points',
   method: 'POST',
   headers: { Authorization: `Bearer ${token}` },
+  // Merged into the top level of every request body, beside the batch. Any JSON.
+  extraParams: { company_id: 42, device_label: 'van-7' },
   autoSync: true,
   batchSize: 200,
   ios: { requiresNetworkConnectivity: true, backoffInitialSec: 5, backoffCeilingSec: 300 },
@@ -918,6 +920,49 @@ const pending = await TrackerSync.pendingCount();   // TrackerResult<number>
 // Both platforms. Only `httpResponse` arrives on Android; the other three types are iOS-only.
 const unsub = TrackerSync.onSyncEvent((e) => console.log(e.type));
 ```
+
+### `extraParams` — your own fields in the request body
+
+The upload body has two levels: `location` carries the batch, and everything in `extraParams` sits
+beside it, at the **top level, before** `location`, in the order you wrote the keys.
+
+```ts
+await TrackerSync.configure({
+  url: 'https://api.example.com/v1/location/batch',
+  extraParams: {
+    user_id: 'u-42',
+    company_id: 7,            // a number stays a number — nothing is stringified
+    debug: false,
+    device: { label: 'van-7', app: '3.2.0' },   // maps and lists nest
+  },
+});
+```
+
+```json
+{
+  "user_id": "u-42",
+  "company_id": 7,
+  "debug": false,
+  "device": { "label": "van-7", "app": "3.2.0" },
+  "location": [ { "uuid": "…" } ]
+}
+```
+
+This is for what belongs to the **request** rather than to any point — a tenant id, a device label,
+an API version — and that a header cannot carry because your endpoint reads its body. It is static
+config, like `headers`: a rotating token belongs in a fresh `configure()` call. With `extraParams`
+unset the body is byte-identical to a build without it, so an existing backend needs no change.
+
+- **`location` is reserved.** It is the batch itself, and both SDKs refuse the key.
+- **`null` is the one value that does not mean the same thing on both platforms.** iOS models it and
+  encodes JSON `null`; the Android SDK has no null value — "omit the key instead" — so a
+  null-valued key is dropped there. A `null` *inside an array* would renumber the array if dropped,
+  so Android rejects that as `invalidConfig` rather than silently shifting the elements. Send a
+  sentinel when the key must reach both bodies.
+- **Android caps nesting at 10 levels** and rejects an unserializable value at `configure()` time,
+  naming the key, rather than failing hours later mid-drain.
+
+Requires iOS SDK **1.0.1** / Android SDK **1.0.4** — the pinned versions of this release.
 
 `forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
 `authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
@@ -1083,7 +1128,7 @@ one.
 
 | Method | Parameters | Returns | Notes |
 |---|---|---|---|
-| `configure(config)` | `SyncConfig` | `Promise<void>` | Rejects `invalidConfig` on bad JSON, an unparseable iOS url, or a failed Android `SyncConfig.validate()` (cleartext url, verb outside POST/PUT/PATCH, batchSize out of range) |
+| `configure(config)` | `SyncConfig` | `Promise<void>` | Rejects `invalidConfig` on bad JSON, an unparseable iOS url, a failed Android `SyncConfig.validate()` (cleartext url, verb outside POST/PUT/PATCH, batchSize out of range), or an `extraParams` value the platform cannot encode |
 | `requestSync()` | — | `Promise<void>` | Call after accepted points even with `autoSync` on |
 | `syncNow()` | — | `Promise<SyncResult>` | `uploaded` / `empty` / `retry` / `authExpired`, plus `forbidden` (**Android only**) |
 | `pendingCount()` | — | `Promise<TrackerResult<number>>` | |
@@ -1203,8 +1248,11 @@ type GeofenceCrossing = {
   timeMs?; latitude?; longitude?; radiusM?: number;   // absent on Android live events
 };
 
+type SyncParamValue = string | number | boolean | null | SyncParamValue[] | { [k: string]: SyncParamValue };
+
 type SyncConfig = {
   url: string; method?: string; headers?: Record<string, string>; autoSync?: boolean; batchSize?: number;
+  extraParams?: Record<string, SyncParamValue>;   // merged into the top level of the request body
   ios?: { requiresNetworkConnectivity?: boolean; wipeOnAuthExpiry?: boolean; stopTrackingOnAuthExpiry?: boolean;
           backoffInitialSec?: number; backoffCeilingSec?: number; autoSyncCoalesceSec?: number };
   android?: { requiresUnmeteredNetwork?: boolean };   // the two network gates are NOT the same field

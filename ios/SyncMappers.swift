@@ -42,6 +42,12 @@ enum SyncMappers {
     var c = SyncConfig(url: url)
     if let v = obj["method"] as? String { c.method = v }
     if let v = obj["headers"] as? [String: String] { c.headers = v }
+    // extraParams: arbitrary JSON, merged into the top level of every request body beside the
+    // batch. The native type is a closed `SyncValue` enum, so the wire values are converted case by
+    // case rather than handed over as `Any` — see syncValue(fromJSON:).
+    if let v = obj["extraParams"] as? [String: Any] {
+      c.extraParams = try v.mapValues(syncValue(fromJSON:))
+    }
     if let v = obj["autoSync"] as? Bool { c.autoSync = v }
     if let v = obj["batchSize"] as? NSNumber { c.batchSize = v.intValue }
     if let ios = obj["ios"] as? [String: Any] {
@@ -53,6 +59,39 @@ enum SyncMappers {
       if let v = ios["autoSyncCoalesceSec"] as? NSNumber { c.autoSyncCoalesceSec = v.doubleValue }
     }
     return c
+  }
+
+  /// One JSON value (as JSONSerialization produced it) -> `SyncValue`. The enum is closed by
+  /// design — "anything a host can build is guaranteed to encode", because a payload that failed to
+  /// encode would be a batch retrying forever inside a background task — so an unmappable value is
+  /// a bad argument and throws invalidConfig here rather than reaching the queue.
+  ///
+  /// Two NSNumber distinctions matter and neither survives a plain `as?` cast: JSON `true`/`false`
+  /// bridge to `__NSCFBoolean`, which also casts to NSNumber, so booleans are tested by CFTypeID
+  /// FIRST or they would arrive as `.int(1)`; and an integral literal must stay `.int` while a
+  /// fractional one becomes `.double`, which is what CFNumberIsFloatType reports. JS has one number
+  /// type, so this is where 1 and 1.0 part company — `1.0` from JS serialises as `1` and crosses as
+  /// an int.
+  ///
+  /// `null` is a real case here (iOS encodes JSON null); the Android mapper drops the key instead,
+  /// which is the one extraParams value that does not mean the same thing on both platforms.
+  private static func syncValue(fromJSON any: Any) throws -> SyncValue {
+    switch any {
+    case is NSNull:
+      return .null
+    case let s as String:
+      return .string(s)
+    case let n as NSNumber:
+      if CFGetTypeID(n) == CFBooleanGetTypeID() { return .bool(n.boolValue) }
+      if CFNumberIsFloatType(n) { return .double(n.doubleValue) }
+      return .int(n.intValue)
+    case let a as [Any]:
+      return .array(try a.map(syncValue(fromJSON:)))
+    case let o as [String: Any]:
+      return .object(try o.mapValues(syncValue(fromJSON:)))
+    default:
+      throw SyncMapperError.invalidConfig("extraParams value is not JSON: \(type(of: any))")
+    }
   }
 
   // MARK: - SyncQueue.Result (the four cases)

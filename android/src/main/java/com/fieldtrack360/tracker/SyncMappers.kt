@@ -11,6 +11,7 @@ import com.field360.traker.sync.SyncQueue
 import com.field360.traker.sync.SyncTimeouts
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.WritableMap
+import org.json.JSONArray
 import org.json.JSONObject
 
 object SyncMappers {
@@ -44,6 +45,20 @@ object SyncMappers {
         b.header(k, h.getString(k))
       }
     }
+    // extraParams: arbitrary JSON, merged into the top level of every request body before the batch.
+    // Added one key at a time so insertion order — which is the order they reach the body — is the
+    // order the host wrote them in. A null-valued key is DROPPED: the Android SDK has no null value
+    // ("omit the key instead"), while iOS models one and encodes JSON null. That is the single
+    // extraParams value whose meaning is not shared, and it is documented on the TS type.
+    o.optJSONObject("extraParams")?.let { e ->
+      val keys = e.keys()
+      while (keys.hasNext()) {
+        val k = keys.next()
+        if (e.isNull(k)) continue
+        b.extraParam(k, jsonToAny(e.get(k), k))
+      }
+    }
+
     if (o.has("autoSync")) b.autoSync(o.getBoolean("autoSync"))
     if (o.has("batchSize")) b.batchSize(o.getInt("batchSize"))
 
@@ -65,6 +80,31 @@ object SyncMappers {
       }
     }
     return b.buildUnchecked()
+  }
+
+  // One extraParams JSON value -> the plain Kotlin value the SDK takes (`Map<String, Any>` of
+  // String / Boolean / boxed number / Map / List). org.json already boxes the scalars as
+  // String/Boolean/Integer/Long/Double, so those pass through untouched and a number stays a number
+  // on the wire; only the containers are rewrapped.
+  //
+  // A null inside an OBJECT is dropped, as at the top level. A null inside an ARRAY is not: dropping
+  // it would renumber every element after it, so it throws and configure() rejects invalidConfig,
+  // naming the key. `path` is that key, carried down only so the message can point at it.
+  private fun jsonToAny(v: Any, path: String): Any = when (v) {
+    is JSONObject -> buildMap {
+      for (k in v.keys()) {
+        if (v.isNull(k)) continue
+        put(k, jsonToAny(v.get(k), "$path.$k"))
+      }
+    }
+    is JSONArray -> List(v.length()) { i ->
+      require(!v.isNull(i)) {
+        "extraParams: null at $path[$i] — Android has no null value, and dropping it would " +
+          "renumber the array. Use a sentinel, or omit the key"
+      }
+      jsonToAny(v.get(i), "$path[$i]")
+    }
+    else -> v
   }
 
   // Native `SyncQueue.Result` -> wire { kind, count?, reason? }. Four cases shared with iOS:
