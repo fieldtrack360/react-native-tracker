@@ -1028,7 +1028,7 @@ unset the body is byte-identical to a build without it, so an existing backend n
 - **Android caps nesting at 10 levels** and rejects an unserializable value at `configure()` time,
   naming the key, rather than failing hours later mid-drain.
 
-Requires iOS SDK **1.0.1** / Android SDK **1.0.4** — the pinned versions of this release.
+Requires iOS SDK **1.0.2** / Android SDK **1.0.7-alpha1** — the pinned versions of this release.
 
 `forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
 `authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
@@ -1036,11 +1036,14 @@ Requires iOS SDK **1.0.1** / Android SDK **1.0.4** — the pinned versions of th
 Recover from it by calling `configure()` again with a credential allowed to write that endpoint; a
 re-login and a wipe would be the wrong reaction to what is usually a scope or permission problem.
 
-`onSyncEvent` runs on both platforms, but the event vocabulary does not match: Android's SDK
-`SyncEvent` has the single `httpResponse` case, so `uploaded` / `retryScheduled` / `authExpired`
-never fire there — read upload outcomes from `syncNow()` / `pendingCount()` instead. Android also
-replays the last exchange to a new subscriber, so the first event after subscribing may describe a
-drain that finished earlier; iOS replays nothing. `TrackerSync.ios.onSyncEvent` remains as a
+`onSyncEvent` runs on both platforms, but the event vocabulary does not match: `httpResponse` is
+the only case this plugin forwards on Android, so `uploaded` / `retryScheduled` / `authExpired`
+never fire there — read upload outcomes from `syncNow()` / `pendingCount()` instead. (Android SDK
+1.0.6 added a `NetworkAvailable` case, announcing a drain triggered by reconnection; it is dropped
+in the bridge rather than given a JS event type iOS could never emit, and the drain it announces
+still reports itself through `httpResponse`.) Android also replays the last exchange to a new
+subscriber, so the first event after subscribing may describe a drain that finished earlier; iOS
+replays nothing. `TrackerSync.ios.onSyncEvent` remains as a
 deprecated alias for the same function.
 
 ---

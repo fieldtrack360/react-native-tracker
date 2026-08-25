@@ -134,22 +134,27 @@ object SyncMappers {
     }
   }
 
-  // Native `SyncEvent` -> wire { type, statusCode?, count? }. The Android SyncEvent has ONE case,
-  // HttpResponse, and it is field-for-field the iOS `.httpResponse` — same wire shape, same
-  // meaning. iOS additionally emits uploaded / retryScheduled / authExpired, which have no Android
-  // source; nothing is synthesised here to fill the gap.
+  // Native `SyncEvent` -> wire { type, statusCode?, count? }, or NULL for a native case the JS
+  // vocabulary deliberately does not carry. HttpResponse is field-for-field the iOS
+  // `.httpResponse` — same wire shape, same meaning. iOS additionally emits uploaded /
+  // retryScheduled / authExpired, which have no Android source; nothing is synthesised here to
+  // fill the gap.
   //
   // statusCode is `Int?` and is ALWAYS present on the wire, null when no HTTP response arrived at
   // all (dead network, DNS failure, timeout) — a device problem, which a host must be able to tell
   // apart from a 500.
-  fun syncEventMap(event: SyncEvent): WritableMap = Arguments.createMap().apply {
-    when (event) {
-      is SyncEvent.HttpResponse -> {
-        putString("type", "httpResponse")
-        val status = event.statusCode
-        if (status == null) putNull("statusCode") else putInt("statusCode", status)
-        putInt("count", event.count)
-      }
+  fun syncEventMap(event: SyncEvent): WritableMap? = when (event) {
+    is SyncEvent.HttpResponse -> Arguments.createMap().apply {
+      putString("type", "httpResponse")
+      val status = event.statusCode
+      if (status == null) putNull("statusCode") else putInt("statusCode", status)
+      putInt("count", event.count)
     }
+    // Added by Android SDK 1.0.6 — the queue drained because the device came back onto a usable
+    // network. NOT forwarded: it would be a `SyncEvent` union member iOS can never emit, and the
+    // drain it announces already reports its own outcome through httpResponse, so nothing is lost
+    // but the notice. The branch exists because the SDK's `SyncEvent` is a sealed interface and
+    // this `when` must stay exhaustive — that is the signal we want when a future case lands.
+    is SyncEvent.NetworkAvailable -> null
   }
 }

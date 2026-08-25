@@ -123,7 +123,8 @@ class TrackerSyncModule(reactContext: ReactApplicationContext) :
   override fun subscribeSyncEvents(promise: Promise) {
     val id = nextSubscriptionId.getAndIncrement()
     jobs[id] = scope.launch {
-      sync.events.collect { emit(id, SyncMappers.syncEventMap(it)) }
+      // A null map is a native event with no place in the JS vocabulary — see syncEventMap.
+      sync.events.collect { event -> SyncMappers.syncEventMap(event)?.let { emit(id, it) } }
     }
     promise.resolve(id)
   }
