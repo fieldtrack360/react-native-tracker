@@ -115,6 +115,15 @@ export type TrackerConfig = {
     stationaryGeofenceOnExitEvent?: string;
     foregroundService?: boolean;
     stopOnTerminate?: boolean;
+    /** Permanently Android-only: React Native has no headless JS on iOS.
+     *
+     *  Opts in to `registerHeadlessTask()` delivery — tracker events reaching JS in a process the
+     *  OS restarted without a UI (reboot, low-memory kill). Read once per `ready()` and persisted,
+     *  because `Application.onCreate` runs before any JS in such a process.
+     *
+     *  Ignored unless `stopOnTerminate` is also `false`: with the service torn down alongside the
+     *  task there is nothing left to dispatch from. */
+    enableHeadless?: boolean;
     startOnBoot?: boolean;
     watchdogIntervalMs?: number;
     watchdogThrottleMs?: number;

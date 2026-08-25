@@ -7,6 +7,7 @@ import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.WritableMap
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 // lifecycle — ready / start / stop. Thin sequencing over Tracker.getInstance(ctx); the facade
 // calls are `suspend` and run on the module-owned CoroutineScope `module.scope`. Result
@@ -32,6 +33,15 @@ object LifecycleModule {
         promise.reject("invalidConfig", t.message ?: "invalid config JSON", t)
         return@launch
       }
+      // Headless is ours, not the SDK's: `enableHeadless` is not a TrackerConfig field, so it is
+      // read straight off the wire JSON. It is paired with the SDK's own stopOnTerminate because
+      // the two are one decision — see TrackerHeadlessPrefs.isEnabled.
+      TrackerHeadlessPrefs.store(
+        module.appContext,
+        enableHeadless = configJson?.let { enableHeadless(it) } ?: false,
+        stopOnTerminate = config.service.stopOnTerminate,
+      )
+      TrackerHeadlessDispatcher.install(module.appContext)
       try {
         val result = Tracker.getInstance(module.appContext).ready(config)
         promise.resolve(resultMap(result) { TrackerMappers.stateMap(it) })
@@ -84,6 +94,12 @@ object LifecycleModule {
       }
     }
   }
+
+  // `android.enableHeadless` off the raw wire config. Malformed JSON never reaches here —
+  // decodeConfig has already parsed the same string — so a throw would be a contradiction, not a
+  // case to handle; an absent key is simply false.
+  private fun enableHeadless(configJson: String): Boolean =
+    JSONObject(configJson).optJSONObject("android")?.optBoolean("enableHeadless") ?: false
 
   // TrackerResult<T> → wire envelope. Ok → { ok:true, value }; Error → { ok:false, code, message }.
   // All three lifecycle values are non-null (T : Any), so Ok always carries a mapped value.

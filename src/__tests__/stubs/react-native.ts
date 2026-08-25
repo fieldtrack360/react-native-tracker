@@ -18,3 +18,17 @@ export type EmitterSubscription = { remove: () => void };
 export type HostComponent<T> = T;
 export type ViewProps = Record<string, unknown>;
 export type NativeSyntheticEvent<T> = { nativeEvent: T };
+
+// Headless registration surface. `registerHeadlessTask` is replaced per-test; `Platform.OS` is a
+// mutable field because the wrapper reads it at CALL time, so a test can flip platforms without
+// resetting the module registry.
+export const Platform: { OS: string } = { OS: 'android' };
+
+export const AppRegistry: {
+  registerHeadlessTask: (
+    key: string,
+    provider: () => (data: unknown) => Promise<void>
+  ) => void;
+} = {
+  registerHeadlessTask: () => {},
+};

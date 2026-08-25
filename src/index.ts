@@ -37,6 +37,13 @@ export {
   type BatteryThresholdCrossing,
 } from './events';
 
+// Android headless delivery — events reaching JS in a process the OS restarted without a UI.
+export {
+  registerHeadlessTask,
+  HEADLESS_TASK_KEY,
+  type HeadlessEvent,
+} from './headless';
+
 // Fabric map components. The typed wrappers own the JSON.stringify boundary; the specs
 // (TrackMapViewNativeComponent / LiveTrackMapViewNativeComponent) are the codegen contract.
 export {
@@ -59,6 +66,7 @@ import {
   onStateChange,
   onTrackerEvent,
 } from './events';
+import { registerHeadlessTask } from './headless';
 
 // Public API (D4). The host calls one common method; platform divergence is absorbed here or
 // in the native mappers — never in the host. `Tracker.*` holds what both platforms do; `.ios.*` /
@@ -307,6 +315,7 @@ export const Tracker = {
   onProviderStateChange,
   onBatteryChange,
   onBatteryThreshold,
+  registerHeadlessTask,
   permissions,
   geofences,
   ios,

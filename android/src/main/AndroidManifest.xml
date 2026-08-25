@@ -1,2 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Headless delivery (android.enableHeadless). Declared unconditionally because a
+             manifest cannot be conditional; nothing starts it unless TrackerHeadlessDispatcher is
+             installed, which needs the host's opt-in. Not exported and not a foreground service —
+             it borrows the SDK's own TrackingService for the background-start exemption and lives
+             only as long as its tasks. -->
+        <service
+            android:name="com.fieldtrack360.tracker.TrackerHeadlessService"
+            android:exported="false" />
+    </application>
 </manifest>

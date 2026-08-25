@@ -732,6 +732,11 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
           // dead GPS and is not. iOS has no equivalent floor, which is why this lives in the
           // android namespace rather than in the shared block.
           fastestIntervalMs: 1000,
+          // Headless delivery. Both flags or nothing: stopOnTerminate: true stops the foreground
+          // service with the task, so there would be no events left to dispatch. The handler is
+          // registered in example/index.js — the bundle root is all a headless boot evaluates.
+          enableHeadless: true,
+          stopOnTerminate: false,
         },
       });
       record('TRACKER_LICENSE', `${TRACKER_LICENSE}`);

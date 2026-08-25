@@ -135,7 +135,8 @@ override fun onCreate() {
 ```
 
 `TrackerLaunch.ready(context)` is fire-and-forget with SDK defaults; a later `Tracker.ready(config)`
-from JS re-applies real config and is safe.
+from JS re-applies real config and is safe. It becomes **required**, not optional, if you use
+[headless events](#headless-events--android-only).
 
 **Nothing else.** The foreground service, the boot receiver, the activity/geofence receivers and
 every permission merge in from the AAR manifest — see [Permissions](#permissions).
@@ -632,6 +633,71 @@ const unsubPoints = onPoints(sessionId, (points) => setPoints(points));
 const unsubLive = onLiveTrack((update) => setUpdate(update));
 ```
 
+### Headless events — Android only
+
+`onTrackerEvent()` needs a live JS subscriber, and there is none in a process the OS restarted
+**without a UI** — after a reboot (the SDK's boot receiver) or a low-memory kill, the foreground
+service comes back alone. `registerHeadlessTask()` is the path that reaches JS in that state.
+
+It is **not** a second event vocabulary. `params` is the same `TrackerEvent` object
+`onTrackerEvent()` delivers, and `name` is its `type` lifted out so you can switch on it directly.
+
+**Three things, all required:**
+
+```js
+// index.js — THE ONLY PLACE THIS CAN GO.
+// A headless boot evaluates the bundle root and nothing else, so a registration inside a
+// component, a screen or a provider never runs and the task start fails with
+// "No task registered for key TrackerHeadless".
+import { AppRegistry } from 'react-native';
+import { registerHeadlessTask } from '@fieldtrack360/react-native-tracker';
+import App from './src/App';
+import { name as appName } from './app.json';
+
+AppRegistry.registerComponent(appName, () => App);
+
+registerHeadlessTask(async ({ name, params }) => {
+  // The task ends — and the native wake lock is released — when this promise settles.
+  // AWAIT EVERYTHING. Work left in flight is killed mid-request.
+  await postToServer(name, params);
+});
+```
+
+```ts
+// Both flags or nothing. stopOnTerminate: true stops the foreground service with the task, so
+// there are no events left to dispatch and the collector is never installed.
+await Tracker.ready({
+  android: { enableHeadless: true, stopOnTerminate: false },
+});
+```
+
+```kotlin
+// MainApplication.onCreate — OPTIONAL in general, REQUIRED here.
+// It is the only callback that runs in a process the OS restarted without a UI, so it is the only
+// place the collector can attach before the first event. The event stream has replay 0: an event
+// emitted with nothing collecting is gone.
+TrackerLaunch.ready(this)
+```
+
+On iOS `registerHeadlessTask()` is a no-op and `enableHeadless` is ignored — React Native has no
+headless JS there. A terminated iOS app is woken by CoreLocation into a normal launch, so the usual
+subscribers apply; the SDK's own storage (`getPoints()`, `Tracker.geofences.getEvents()`) remains
+the source of truth for anything that happened while no JS was running. That holds on Android too:
+headless delivery is best-effort, not a durability guarantee.
+
+**What it costs and where it stops:**
+
+- **One short-lived task per event.** React Native takes an untimed `PARTIAL_WAKE_LOCK` while a
+  task runs and releases it when the service's tasks drain. Every event type is delivered,
+  `location` included — at a fast cadence that is real battery. Keep the handler cheap.
+- **Not delivered while the app is on screen.** The foreground app already has `onTrackerEvent()`
+  giving it the same object; a headless task on top would double every handler.
+- **Not delivered after a force-stop.** Nothing in the app runs again until the user opens it.
+- **A start can be refused.** Android's background-start rule rejects the service when no
+  foreground service is running (tracking stopped, only a geofence receiver woke the process).
+  Those events stay queued — 64 deep, drop-oldest, mirroring the native stream — and go out with
+  the next accepted start, or are lost if the process dies first.
+
 ### One-shot location
 
 ```ts
@@ -1097,6 +1163,7 @@ deliver the current value on subscribe.
 | `onStateChange(cb)` | `(state: TrackerState) => void` | |
 | `onProviderStateChange(cb)` | `(state: ProviderState) => void` | |
 | `onBatteryChange(cb)` | `(battery: BatteryInfo) => void` | Both platforms |
+| `registerHeadlessTask(task)` | `(event: { name, params }) => Promise<void>` | **Android only.** Events with no UI process — see [Headless events](#headless-events--android-only). No unsubscribe: register once in `index.js` |
 
 ```ts
 type TrackerEvent =
@@ -1285,7 +1352,7 @@ namespaces. Every field is optional — omit it to keep the SDK default.
 | Persistence | `maxDaysToPersist`, `persistRawFixes`, `rawFixRingCapacity`, `persistRawPoints`, `rawPointRingCapacity`, `persistDecisions`, `decisionRetentionDays`, `decisionMaxRows` |
 | Service | `healthLoopMs`, `backstopIntervalMin`, `deadTrackerMovingMin`, `deadTrackerStationaryMin` |
 | `ios` | `backgroundLocationIndicator`, `stillConfidenceMin`, `useSignificantLocationChange`, `useStationaryFence` |
-| `android` | `providerType`, `fastestIntervalMs`, `maxUpdateDelayMs`, `maxFixAgeMs`, `navigationFastestIntervalMs`, `distanceFilterM`, `maxRecords`, `useSignificantMotion`, `stepBatchLatencyMs`, `stationaryGeofenceId`, `stationaryGeofenceOnEnterEvent`, `stationaryGeofenceOnExitEvent`, `foregroundService`, `stopOnTerminate`, `startOnBoot`, `watchdogIntervalMs`, `watchdogThrottleMs`, `wakeLockMs`, `notificationTitle`, `notificationText`, `notificationChannelId`, `notificationChannelName`, `notificationSmallIconResName` |
+| `android` | `providerType`, `fastestIntervalMs`, `maxUpdateDelayMs`, `maxFixAgeMs`, `navigationFastestIntervalMs`, `distanceFilterM`, `maxRecords`, `useSignificantMotion`, `stepBatchLatencyMs`, `stationaryGeofenceId`, `stationaryGeofenceOnEnterEvent`, `stationaryGeofenceOnExitEvent`, `foregroundService`, `stopOnTerminate`, `enableHeadless`, `startOnBoot`, `watchdogIntervalMs`, `watchdogThrottleMs`, `wakeLockMs`, `notificationTitle`, `notificationText`, `notificationChannelId`, `notificationChannelName`, `notificationSmallIconResName` |
 
 Per-field docblocks live in `src/types/config.ts`.
 
@@ -1486,6 +1553,8 @@ Fetch-script environment variables (all optional):
 | `Dependency … requires compileSdkVersion 37 or later` | An older release of this package. Upgrade it rather than installing SDK platform 37 |
 | `Could not find …:gradle:` with an empty version | The second `includeBuild` of `@react-native/gradle-plugin` in `settings.gradle` is missing |
 | Map surface is blank, only a logcat line | The `com.google.android.geo.API_KEY` `<meta-data>` element is missing, or the manifest placeholder is empty — required once you mount a map component. Assigning `manifestPlaceholders = [...]` (instead of index assignment) also wipes React Native's own placeholders |
+| Headless task never fires: "No task registered for key TrackerHeadless" | `registerHeadlessTask()` is not at the top level of `index.js`. A headless boot evaluates the bundle root and nothing else |
+| Headless task never fires, no error | One of the three requirements is missing: `android.enableHeadless: true`, `android.stopOnTerminate: false`, and `TrackerLaunch.ready(this)` in `MainApplication.onCreate` |
 | Session stops when the app is swiped away | `android.stopOnTerminate` — and check the notification permission: a suppressed foreground-service notification makes the OS more willing to kill the app |
 | `playServicesUnavailable` | The device has no usable Google Play services; the fused provider is unavailable |
 
