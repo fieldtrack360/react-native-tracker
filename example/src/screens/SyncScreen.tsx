@@ -17,6 +17,8 @@ import {
   ToggleRow,
 } from '../ui';
 import { useTracking } from '../state/tracking';
+import DeviceInfo from 'react-native-device-info'
+import { createMMKV } from 'react-native-mmkv';
 
 // The upload instrument — the port of SampleApp/Modules/Sync/SyncView.swift and its view model.
 //
@@ -35,14 +37,31 @@ import { useTracking } from '../state/tracking';
 // treated as the teardown it is, and the badge is cleared on it.
 
 const FEED_LIMIT = 60;
+const storage = createMMKV();
+const ENDPOINT_KEY = 'sync.endpoint';
 
 export function SyncScreen({ onBack }: { onBack: () => void }) {
   const theme = useTheme();
   const tracking = useTracking();
 
+  /// The run the uploads are tagged with. `resolvedSessionId` is the pin when Home has one and the
+  /// live session otherwise — and pressing Start releases the pin, so a run in progress always
+  /// reads as itself here.
+  const liveSessionId = tracking.resolvedSessionId;
+
   /// Left empty on purpose. A default endpoint would be a request this app makes to somebody else's
-  /// server on first launch.
-  const [endpoint, setEndpoint] = useState('');
+  /// server on first launch — a restored value was typed here by the tester. Restoring it does NOT
+  /// configure: the uploader is only ever wired by the host pressing Configure.
+  const [endpoint, setEndpoint] = useState(
+    () => storage.getString(ENDPOINT_KEY) ?? ''
+  );
+
+  /// Written on every keystroke rather than on Configure, because the field being wiped by a trip
+  /// to Home is exactly the case this exists for, and that trip does not go through Configure.
+  const updateEndpoint = useCallback((value: string) => {
+    setEndpoint(value);
+    storage.set(ENDPOINT_KEY, value);
+  }, []);
 
   /// Sent as `Authorization` when non-empty. A 401 from a stale one is worth demonstrating — it is
   /// the only sync outcome that tears the uploader down.
@@ -123,12 +142,16 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
     return unsubscribe;
   }, [record, refreshPending]);
 
-  const configure = async () => {
+  const configure = async (url: string = endpoint) => {
     const config: SyncConfig = {
-      url: endpoint,
+      url,
       method: 'POST',
       autoSync,
       batchSize: 100,
+      extraParams: {
+        device_id: `${await DeviceInfo.getDeviceName()}-${await DeviceInfo.getUniqueId()}`,
+        ...(liveSessionId ? { session_id: liveSessionId } : {}),
+      },
       ...(bearerToken !== ''
         ? { headers: { Authorization: `Bearer ${bearerToken}` } }
         : {}),
@@ -139,12 +162,15 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
     };
     try {
       await TrackerSync.configure(config);
-      setConfiguredEndpoint(endpoint);
-      setLastResult(`configured for ${endpoint}`);
-      record('CONFIG', endpoint);
+      setConfiguredEndpoint(url);
+      setLastResult(`configured for ${url}`);
+      record(
+        'CONFIG',
+        `${url}${liveSessionId ? ` session ${liveSessionId.slice(0, 8)}` : ''}`
+      );
       tracking.note(
         'SYNC',
-        `configured endpoint=${endpoint} autoSync=${autoSync}`
+        `configured endpoint=${url} autoSync=${autoSync} session=${liveSessionId ?? 'none'}`
       );
       await refreshPending();
     } catch (error) {
@@ -153,6 +179,19 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
       setLastResult(`not configured: ${String(error)}`);
     }
   };
+
+  // extraParams cannot be patched — the bridge takes a whole SyncConfig — so a new session means
+  // re-applying the configuration this screen last applied, with the in-force endpoint rather than
+  // whatever is currently typed. Skipped until the host has pressed Configure once: pushing a URL
+  // nobody confirmed would be this screen picking an endpoint on its own.
+  useEffect(() => {
+    if (configuredEndpoint === undefined) {
+      return;
+    }
+    void configure(configuredEndpoint);
+    // The session id is the only trigger that belongs here; `configure` is rebuilt every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveSessionId]);
 
   /// Drains now and reports what happened. `syncNow()` awaits the outcome, unlike `requestSync()`,
   /// which is why this button can say what the server did rather than only that it was asked.
@@ -215,7 +254,7 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
         <LabelledField
           name="URL"
           value={endpoint}
-          onChange={setEndpoint}
+          onChange={updateEndpoint}
           placeholder="https://your.server/track"
           keyboardType="url"
           autoCapitalize="none"
@@ -251,6 +290,13 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
         {configuredEndpoint ? (
           <FactRow name="Sending to" value={configuredEndpoint} />
         ) : null}
+        {/* What extraParams.session_id currently carries. Re-pushed automatically on a session
+            change, so this and the uploads never disagree once Configure has been pressed. */}
+        <FactRow
+          name="session_id"
+          value={liveSessionId ?? 'no session yet'}
+          tint={liveSessionId ? theme.status.good : theme.idle}
+        />
 
         <Note>
           The uploader is given the SDK's own queue rather than reaching for it,
