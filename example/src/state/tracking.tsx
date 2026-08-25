@@ -737,6 +737,14 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
           // registered in example/index.js — the bundle root is all a headless boot evaluates.
           enableHeadless: true,
           stopOnTerminate: false,
+          notificationTitle: 'Tracker-RN tracking your location',
+          notificationText: 'Location is being tracked in the background',
+          // The launcher icon's motif, not the launcher bitmap: Android alpha-masks a small icon
+          // from API 21 on, so @mipmap/ic_launcher — an opaque rounded square — would post a solid
+          // white square. `drawable/ic_stat_tracker.xml` carries the same shape on a transparent
+          // ground. Resolved by NAME on the host app's resources, so the drawable must live in
+          // example/android/app/src/main/res/drawable/ and keep this exact filename.
+          notificationSmallIconResName: 'ic_stat_tracker',
         },
       });
       record('TRACKER_LICENSE', `${TRACKER_LICENSE}`);
@@ -769,16 +777,23 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       await refresh();
 
       unsubscribeEvents = onTrackerEvent((event) => {
+        if (event.type === 'enabledChange' || event.type === 'error') {
+          console.log('EVT', JSON.stringify(event));
+        }
         void handleEvent(event);
       });
       unsubscribeState = onStateChange((sdkState) => {
+        console.log('STATE', JSON.stringify(sdkState));
         facts.current.isReady = sdkState.isReady;
         facts.current.isTracking = sdkState.isTracking;
         facts.current.motionState = sdkState.motionState;
         facts.current.provider = sdkState.providerState;
         rebuildSnapshot();
       });
-      unsubscribeProvider = onProviderStateChange(handleProviderChange);
+      unsubscribeProvider = onProviderStateChange((providerState) => {
+        console.log('PROVIDER', JSON.stringify(providerState));
+        handleProviderChange(providerState);
+      });
       unsubscribeBatteryThreshold = onBatteryThreshold(
         BATTERY_THRESHOLDS,
         (crossing) => {
@@ -816,6 +831,11 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     async (tag?: string) => {
       note('NOTE', `start requested tag=${tag ?? 'none'}`);
       const result = await Tracker.start(tag);
+      // The CODE is the diagnostic, not the message: `message` is free text from the native SDK,
+      // `code` is the contract. A refusal after a Location Services off→on cycle should name which.
+      if (!result.ok) {
+        console.log('START', result.code, result.message);
+      }
       if (result.ok) {
         // Starting a run releases the pin: the instruments follow the run that was just started,
         // which is what somebody pressing Start is asking for.

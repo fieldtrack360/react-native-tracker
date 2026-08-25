@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The status-bar icon for the tracking foreground service: the launcher icon's motif — the
+     S-curve track between two waypoints — redrawn as a silhouette.
+
+     NOT the launcher bitmap itself. Android alpha-masks a notification's small icon from API 21
+     on: every opaque pixel is painted white and colour is discarded, so @mipmap/ic_launcher (an
+     opaque rounded square) would render as a solid white square. Only shape survives the mask,
+     which is why this is a transparent-background vector carrying the same shape. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+  <path
+      android:pathData="M6,17 C13.5,17.6 8.4,13 12,11.4 C15.6,9.8 10.6,6 17.6,6.6"
+      android:strokeColor="#FFFFFFFF"
+      android:strokeWidth="2.6"
+      android:strokeLineCap="round"
+      android:strokeLineJoin="round" />
+  <path
+      android:pathData="M6,17 m-2.6,0 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0"
+      android:fillColor="#FFFFFFFF" />
+  <path
+      android:pathData="M17.6,6.6 m-3.4,0 a3.4,3.4 0 1,0 6.8,0 a3.4,3.4 0 1,0 -6.8,0"
+      android:fillColor="#FFFFFFFF" />
+</vector>
