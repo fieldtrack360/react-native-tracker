@@ -584,8 +584,8 @@ async function runLadder(showRationale: () => Promise<boolean>) {
 | Foreground denied | `getTier()` is `'none'`; `start()` resolves `{ ok:false, code:'permissionDenied' }` |
 | Background denied / downgraded mid-session | Capture **degrades** to foreground-only rather than stopping; a `TrackerEvent` `error` with `backgroundPermissionMissing` is emitted |
 | Reduced (approximate) accuracy | `getAccuracy()` is `'approximate'`; errors surface as `coarseOnly`. On iOS, `Tracker.ios.requestTemporaryFullAccuracy(purposeKey)` asks for a one-session upgrade (the `purposeKey` must exist in `NSLocationTemporaryUsageDescriptionDictionary`) |
-| Location services off device-wide | `locationDisabled`; `providerState` reflects it |
-| Permission revoked in Settings while running | Android restarts the process; the session resumes with whatever tier is left. Read `onProviderStateChange` rather than caching a tier |
+| Location services off device-wide | `locationDisabled`; `providerState` reflects it. Turning them back on resumes the running session by itself on both platforms — do not `stop()`/`start()` around the toggle, which would end the track and start a new one |
+| Permission revoked in Settings while running | Android restarts the process; the session resumes with whatever tier is left. iOS keeps the session and re-opens the location stream when the permission comes back. Read `onProviderStateChange` rather than caching a tier |
 | OS will not prompt again | `shouldStopAsking(attempts)` → `true`; the only route is `openAppSettings()` |
 
 `example/src/screens/PermissionLadder.tsx` is a complete, copy-ready implementation of all five
@@ -773,6 +773,68 @@ The most-used `TrackerConfig` fields (full list in [Types](#types)):
 | `stopTimeoutMin`, `stationaryRadiusM` | `number` | Stop detection |
 | `maxDaysToPersist` | `number` | Retention |
 | `persistRawFixes` / `persistRawPoints` / `persistDecisions` | `boolean` | Gate the diagnostic reads |
+
+### The Android notification
+
+**Android only.** A session runs inside a foreground service, and Android requires a foreground
+service to post a persistent notification for as long as it lives — the one the user sees in the
+shade for the whole trip. You do not create it and you cannot hide it; you choose what it says.
+iOS has no counterpart (it shows the system location indicator instead), so there is nothing to
+configure there.
+
+Set with nothing else, it reads **"Tracking active" / "Recording your location"** on a channel
+named "Location tracking", with a generic pin icon. All five parts are `ready()` config, in the
+`android` block:
+
+```ts
+await Tracker.ready({
+  license: TRACKER_LICENSE,
+  android: {
+    notificationTitle: 'Acme Field tracking your location',
+    notificationText: 'Location is being recorded for this shift',
+    notificationChannelId: 'acme_tracking',
+    notificationChannelName: 'Location tracking',
+    notificationSmallIconResName: 'ic_stat_tracker',
+  },
+});
+```
+
+**The icon is the one step that is not JavaScript.** `notificationSmallIconResName` is the
+*filename* of a drawable in your Android app, looked up by name at runtime — a name and not an
+`import`, because the config is persisted to disk and a compiled resource id would point at a
+different image after the next Android build. Create
+`android/app/src/main/res/drawable/ic_stat_tracker.xml` and pass `'ic_stat_tracker'` — no path, no
+`.xml`.
+
+What goes in that file matters more than it looks: from Android 5 on the OS **alpha-masks** a small
+icon — every non-transparent pixel is repainted white and all colour is thrown away. Point this at
+your launcher icon and you get a solid white square in the status bar, because a launcher icon is
+opaque edge to edge. It has to be a **white-on-transparent silhouette**. Copy
+`example/android/app/src/main/res/drawable/ic_stat_tracker.xml` and redraw the paths; it is a plain
+24dp vector, and the comment at the top of it explains the mask again in situ.
+
+A name that does not resolve is **not** fatal — the SDK falls back to the generic pin and writes a
+logcat warning. A blank status-bar icon would fail the notification post, which would fail
+`startForeground`, which would end the session, so the fallback is deliberate.
+
+Two more things worth knowing before you ship:
+
+- **Changing `notificationChannelId` creates a new channel.** Android channels are permanent and
+  user-owned: once someone has muted or restyled your old channel, a new id starts fresh and their
+  choice does not follow. Pick an id in your first release and leave it alone. `channelName` is the
+  label they see in Settings and is safe to change at any time.
+- **Importance is fixed at low, ongoing and silent** — no sound, no vibration, and marked ongoing
+  (Android 14+ lets the user swipe it away anyway; the service keeps running). Not configurable,
+  and it is what keeps a notification the user did not ask for from behaving like one that wants
+  attention.
+
+Ask for the notification permission on Android 13+ via `Tracker.android.requestNotification()` —
+rung 5 of the [permission ladder](#runtime-requests--use-trackerpermissions-not-permissionsandroid).
+A refusal does not stop capture, but a session with no visible notification is a stronger candidate
+for the OS to kill.
+
+Requires Android SDK **1.0.7-alpha2** — the version pinned by this release. Earlier SDKs accepted
+these five keys and ignored them, always posting the defaults.
 
 ---
 
@@ -1028,7 +1090,7 @@ unset the body is byte-identical to a build without it, so an existing backend n
 - **Android caps nesting at 10 levels** and rejects an unserializable value at `configure()` time,
   naming the key, rather than failing hours later mid-drain.
 
-Requires iOS SDK **1.0.2** / Android SDK **1.0.7-alpha1** — the pinned versions of this release.
+Requires iOS SDK **1.0.4** / Android SDK **1.0.7-alpha2** — the pinned versions of this release.
 
 `forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
 `authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
@@ -1558,6 +1620,9 @@ Fetch-script environment variables (all optional):
 | Map surface is blank, only a logcat line | The `com.google.android.geo.API_KEY` `<meta-data>` element is missing, or the manifest placeholder is empty — required once you mount a map component. Assigning `manifestPlaceholders = [...]` (instead of index assignment) also wipes React Native's own placeholders |
 | Headless task never fires: "No task registered for key TrackerHeadless" | `registerHeadlessTask()` is not at the top level of `index.js`. A headless boot evaluates the bundle root and nothing else |
 | Headless task never fires, no error | One of the three requirements is missing: `android.enableHeadless: true`, `android.stopOnTerminate: false`, and `TrackerLaunch.ready(this)` in `MainApplication.onCreate` |
+| The tracking notification is a solid white square | `notificationSmallIconResName` points at the launcher icon (or any opaque image). Android alpha-masks a small icon — use a white-on-transparent silhouette, see [The Android notification](#the-android-notification) |
+| The notification still says "Tracking active" after setting `notificationTitle` | Either the icon/title config never reached the SDK — `reset: false` on `ready()` keeps the persisted config, so pass `reset: true` — or the app is on a plugin release older than `1.0.4`, whose pinned Android SDK ignored these keys |
+| Notification text is right but the icon is the generic pin | The name in `notificationSmallIconResName` did not resolve. It is a filename in `android/app/src/main/res/drawable/` with no path and no extension; logcat names the one it could not find |
 | Session stops when the app is swiped away | `android.stopOnTerminate` — and check the notification permission: a suppressed foreground-service notification makes the OS more willing to kill the app |
 | `playServicesUnavailable` | The device has no usable Google Play services; the fused provider is unavailable |
 

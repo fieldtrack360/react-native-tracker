@@ -1883,9 +1883,32 @@ PODS:
   - ReactNativeDependencies (0.87.0)
   - RNDeviceInfo (15.0.2):
     - React-Core
+  - RNFS (2.20.0):
+    - React-Core
+  - RNShare (12.3.1):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - SocketRocket (0.7.1):
     - ReactNativeDependencies
-  - Tracker (1.0.2):
+  - Tracker (1.0.4):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -1996,6 +2019,8 @@ DEPENDENCIES:
   - ReactCommon/turbomodule/core (from `../../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
   - RNDeviceInfo (from `../../node_modules/react-native-device-info`)
+  - RNFS (from `../../node_modules/react-native-fs`)
+  - RNShare (from `../../node_modules/react-native-share`)
   - SocketRocket (from `build/rndeps-facades/SocketRocket`)
   - Tracker (from `../..`)
   - Yoga (from `../../node_modules/react-native/ReactCommon/yoga`)
@@ -2178,6 +2203,10 @@ EXTERNAL SOURCES:
     :podspec: "../../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
   RNDeviceInfo:
     :path: "../../node_modules/react-native-device-info"
+  RNFS:
+    :path: "../../node_modules/react-native-fs"
+  RNShare:
+    :path: "../../node_modules/react-native-share"
   SocketRocket:
     :path: build/rndeps-facades/SocketRocket
   Tracker:
@@ -2273,8 +2302,10 @@ SPEC CHECKSUMS:
   ReactCommon: d6c8004565a3adf5c3802a45fad3c2ecc8b08895
   ReactNativeDependencies: ec5530432d8191b38e278117d498aaff05ea9d6f
   RNDeviceInfo: 4c852998208b60dc192ae3529e5867817719ad1e
+  RNFS: 89de7d7f4c0f6bafa05343c578f61118c8282ed8
+  RNShare: cca9107c0dcfdd92fa228116226d1189663265b4
   SocketRocket: 37aec555668fb852ec12e3c0de59a86ca58f0871
-  Tracker: b14210d95aa82e7817d88ff18100b42bb4fa9f56
+  Tracker: e3a862299ca2e6d024431577b4b223c959481727
   Yoga: bae35227863013a26b8b43ac24a64c72b7e8baed
 
 PODFILE CHECKSUM: 4f9feb14dbe1477af4c623e5bf5f790ef7d2dd81
