@@ -4,7 +4,6 @@ import type {
   BatteryInfo,
   MotionState,
   PermissionTier,
-  PowerSource,
 } from '@fieldtrack360/react-native-tracker';
 import { spacing, useTheme } from '../theme';
 import {
@@ -69,7 +68,7 @@ export function HomeScreen({
     Alert.alert(
       'Clear the capture log?',
       'Every run banner and every recorded decision in the log is deleted. Share it first if this ' +
-      'run is not finished being explained.',
+        'run is not finished being explained.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -147,7 +146,19 @@ export function HomeScreen({
             {snapshot.detectedActivity ? (
               <FactRow name="Activity" value={snapshot.detectedActivity} />
             ) : null}
-            {snapshot.lastError ? (
+            {snapshot.isLocationSuspended ? (
+              <>
+                <Divider />
+                {/* The SDK is already retrying this outage on its own (CaptureSuspended →
+                    CaptureResumed) — a raw error code here would read as something the tester
+                    has to act on, when waiting is the correct response. */}
+                <FactRow
+                  name="Location"
+                  value="GPS Off detected..."
+                  tint={theme.status.warn}
+                />
+              </>
+            ) : snapshot.lastError ? (
               <>
                 <Divider />
                 {/* Kept on screen rather than flashed as a toast. A backgroundPermissionMissing is a
@@ -328,12 +339,9 @@ export function HomeScreen({
         </ActionRow>
 
         <Note>
-          One log, appended across the life of the process, with a banner per
-          launch. Clear it before a field run and share it after. On this
-          platform it lives in memory rather than in a file — React Native ships
-          no filesystem API and the sample takes no dependency to get one — so
-          the cross-launch comparison the iOS sample relies on is not available
-          here.
+          One log, appended to a file on disk with a banner per launch, so it
+          survives a relaunch. Clear it before a field run and share it after —
+          Share sends the file itself, not a text blob.
         </Note>
       </DiagnosticCard>
 
@@ -394,23 +402,6 @@ function BatteryBadge({
       </Text>
     </View>
   );
-}
-
-function powerSourceLabel(source: PowerSource): string {
-  switch (source) {
-    case 'none':
-      return 'On battery';
-    case 'ac':
-      return 'AC';
-    case 'usb':
-      return 'USB';
-    case 'wireless':
-      return 'Wireless';
-    case 'dock':
-      return 'Dock';
-    default:
-      return 'Unknown';
-  }
 }
 
 // MARK: - Tints

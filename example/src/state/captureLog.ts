@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import RNFS from 'react-native-fs';
 import type {
   DeviceSensors,
   FixDecision,
@@ -16,17 +17,21 @@ import type {
 // in, and this log is what makes that knowable a week later, on a device nobody has a debugger
 // attached to.
 //
-// TWO DELIBERATE DIVERGENCES FROM THE iOS SAMPLE, both forced by the platform rather than chosen:
+// ONE DELIBERATE DIVERGENCE FROM THE iOS SAMPLE, forced by the platform rather than chosen:
 //
-//  1. IT IS IN MEMORY, NOT A FILE. React Native ships no filesystem API, and the sample takes no
-//     dependency to get one. The consequence is real and worth stating: the log does not survive a
-//     relaunch, so the cross-launch comparison — where OEM and permission problems show up — is not
-//     available here. Everything else about the format is identical, so a log shared from this app
-//     and one shared from the iOS sample are read the same way.
-//  2. THE JUMP BLOCK CANNOT WINDOW DECISIONS. The wire `FixDecision` carries no fix
-//     timestamp, so "what was offered between these two stored points" cannot be answered from JS.
-//     The jump itself is still reported; the `└─` line says why the breakdown is missing rather
-//     than printing a breakdown computed over the wrong set.
+//  THE JUMP BLOCK CANNOT WINDOW DECISIONS. The wire `FixDecision` carries no fix
+//  timestamp, so "what was offered between these two stored points" cannot be answered from JS.
+//  The jump itself is still reported; the `└─` line says why the breakdown is missing rather
+//  than printing a breakdown computed over the wrong set.
+//
+// Every line appended here is also queued onto a file on disk (`FILE_NAME`, in the app's cache
+// directory — see the comment on `FILE_NAME` for why not the document directory), in addition to
+// the in-memory `lines` buffer below. The file is never capacity-dropped
+// and, unlike `lines`, is not reset at construction — only an explicit `clear()` truncates it — so
+// it is what carries the log across a relaunch, which is the cross-launch comparison the iOS sample
+// relies on. `Share` reads the file so a relaunch does not lose what was captured before it; `size`
+// and `isEmpty` still read `lines`, since they describe the current run, which is what the Clear
+// button actually resets.
 
 /// How many lines the log holds before it starts dropping. A buffer depth, not a tuning constant:
 /// nothing compares it and nothing decides on it.
@@ -42,6 +47,16 @@ const JUMP_THRESHOLD_M = 250;
 /// a mail client with no syntax highlighting.
 const KIND_WIDTH = 8;
 
+/// Lives in the app's cache directory, not the document directory. That is a share-plumbing
+/// constraint, not a durability choice: `react-native-share`'s bundled Android FileProvider
+/// (`share_download_paths.xml`) only maps a `Download/` external path and a `cache-path` — the
+/// document directory is not covered, so `FileProvider.getUriForFile` throws for a file there,
+/// `ShareFile.getURI()` swallows it and returns `null`, and the native module then crashes handing
+/// that null `Uri` to `ClipData.newUri` ("Attempt to invoke virtual method ...Uri.getScheme() on a
+/// null object reference"). Using the cache directory avoids adding a custom FileProvider + paths
+/// XML to the example app's AndroidManifest just to share one file.
+const FILE_NAME = 'capture-log.txt';
+
 export class CaptureLog {
   private lines: string[] = [];
 
@@ -54,6 +69,18 @@ export class CaptureLog {
   /// exactly that moment would make the run that follows uninterpretable.
   private headerLines: string[] = [];
 
+  readonly filePath = `${RNFS.CachesDirectoryPath}/${FILE_NAME}`;
+
+  /// Serializes disk writes so concurrent `append()` calls land in the order they were made
+  /// instead of racing each other through `RNFS.appendFile`. `flush()` is just "wait for the tail
+  /// of this chain", which is what lets Share be sure everything pressed-so-far has landed.
+  private writeChain: Promise<void> = Promise.resolve();
+
+  /// Errors are swallowed rather than fed back through `append()`/`note()` — a disk write failure
+  /// reported by writing another line to the thing that just failed to write is how you get a
+  /// silent loop, not a diagnosis. One line is enough to know the file copy is unreliable.
+  private diskErrorNoted = false;
+
   // MARK: - Append
 
   append(line: string) {
@@ -62,6 +89,28 @@ export class CaptureLog {
       this.dropped += 1;
     }
     this.lines.push(line);
+    this.queueWrite(`${line}\n`);
+  }
+
+  private queueWrite(text: string, mode: 'append' | 'truncate' = 'append') {
+    this.writeChain = this.writeChain
+      .then(() =>
+        mode === 'truncate'
+          ? RNFS.writeFile(this.filePath, text, 'utf8')
+          : RNFS.appendFile(this.filePath, text, 'utf8')
+      )
+      .catch((error) => {
+        if (!this.diskErrorNoted) {
+          this.diskErrorNoted = true;
+          console.warn(`[CaptureLog] disk write failed: ${String(error)}`);
+        }
+      });
+  }
+
+  /// Waits for every disk write queued so far to land. Called before Share reads the file, so the
+  /// file on disk is never behind what the caller just saw appended to the in-memory buffer.
+  flush(): Promise<void> {
+    return this.writeChain;
   }
 
   /// Something the app itself wants on the record: a button press, a refused start, a scenario
@@ -450,10 +499,14 @@ export class CaptureLog {
     return [...dropped, ...this.lines].join('\n');
   }
 
-  /// Empties the log and re-emits the run banner.
+  /// Empties the log and re-emits the run banner. Truncates the file on disk first — via
+  /// `queueWrite`'s `truncate` mode, so it stays ordered against any writes still in flight —
+  /// rather than deleting and recreating it, so a share triggered mid-clear still resolves to a
+  /// real (now-empty-then-refilled) file instead of a missing one.
   clear() {
     this.lines = [];
     this.dropped = 0;
+    this.queueWrite('', 'truncate');
     for (const line of this.headerLines) {
       this.append(line);
     }

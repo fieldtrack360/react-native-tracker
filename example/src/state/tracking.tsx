@@ -8,7 +8,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { AppState, Share } from 'react-native';
+import { AppState } from 'react-native';
+import Share from 'react-native-share';
 import Tracker, {
   TrackerSync,
   onBatteryThreshold,
@@ -106,6 +107,11 @@ export type TrackingSnapshot = {
   /** The last error the SDK reported, kept until something replaces it. A cleared error is a field
    *  report nobody can answer. */
   lastError?: string;
+
+  /** True while the SDK has suspended capture for a provider outage it is retrying on its own
+   *  (between `CaptureSuspended` and `CaptureResumed`). The screen shows a "Waiting for GPS…"
+   *  banner instead of `lastError` for this span — it is not something the user needs to fix. */
+  isLocationSuspended: boolean;
 };
 
 // MARK: - Not thresholds
@@ -231,6 +237,10 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     isTracking: boolean;
     motionState: MotionState;
     pinnedSessionId?: string;
+    /** True between the SDK's `CaptureSuspended` and `CaptureResumed` diagnostics — a provider
+     *  outage it is already retrying on its own, not a failure the user needs to act on. Drives
+     *  the "Waiting for GPS…" banner in place of the raw error text for that span. */
+    isLocationSuspended: boolean;
   }>({
     tier: 'none',
     accuracy: 'approximate',
@@ -240,6 +250,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     isReady: false,
     isTracking: false,
     motionState: 'stopped',
+    isLocationSuspended: false,
   });
 
   const hasStarted = useRef(false);
@@ -247,7 +258,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
   // Live sync needs an accepted-point signal per running session (Android does not auto-enqueue the
   // sync worker on accepted points even with autoSync on — requestSync() must be called after each
   // one). Re-pointed at the new session's onPoints stream on every start(), torn down on stop().
-  const unsubscribePoints = useRef<() => void>(() => { });
+  const unsubscribePoints = useRef<() => void>(() => {});
 
   // MARK: - The on-screen feed
 
@@ -290,6 +301,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       isPinnedSession: facts.current.pinnedSessionId != null,
       pointCount,
       lastError: facts.current.lastError,
+      isLocationSuspended: facts.current.isLocationSuspended,
     }),
     []
   );
@@ -454,8 +466,8 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       record(
         'BATTERY',
         `reconciled — ${battery.percent ?? '—'}%` +
-        `${battery.isCharging ? ' (charging)' : ''}` +
-        `${battery.isLow ? ' · low' : ''} · ${battery.powerSource}`
+          `${battery.isCharging ? ' (charging)' : ''}` +
+          `${battery.isLow ? ' · low' : ''} · ${battery.powerSource}`
       );
     } catch {
       // Silent: this is a self-heal poll, not a user-initiated read. A failed one leaves the
@@ -480,7 +492,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       record(
         'PROVIDER',
         `auth ${provider.permissionTier} · accuracy ${provider.accuracyAuthorization}` +
-        ` · powerSave ${provider.powerSave ? 'on' : 'off'}`
+          ` · powerSave ${provider.powerSave ? 'on' : 'off'}`
       );
 
       if (
@@ -489,8 +501,8 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       ) {
         setAlwaysRationale(
           'Background authorization was withdrawn while a run was in progress. Tracking continues ' +
-          'while the app is open; it stops as soon as the app is backgrounded. Allow "Always" ' +
-          'again to record complete trips.'
+            'while the app is open; it stops as soon as the app is backgrounded. Allow "Always" ' +
+            'again to record complete trips.'
         );
         record('PERM', `downgraded from always to ${provider.permissionTier}`);
       }
@@ -504,6 +516,35 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       if (provider.ios && !provider.ios.locationServicesEnabled) {
         facts.current.lastError =
           'Location Services is switched off for this device.';
+        rebuildSnapshot();
+      }
+
+      // A provider outage is transient by nature — GPS/network flip back on and the SDK
+      // resumes on its own. Leaving the old error pinned after recovery reads as "still
+      // broken" when it is not, so clear it the moment the providers report healthy again.
+      const recovered =
+        (provider.ios && provider.ios.locationServicesEnabled) ||
+        (provider.android &&
+          provider.android.gpsEnabled &&
+          provider.android.networkEnabled);
+      // fixTimeout is the code that actually lands here most often: the SDK logs
+      // locationDisabled first, then immediately follows it with a fixTimeout for the
+      // in-flight one-shot, which overwrites lastError last — so both codes need clearing.
+      const isStaleProviderError =
+        facts.current.lastError?.startsWith('locationDisabled') ||
+        facts.current.lastError?.startsWith('fixTimeout');
+      if (recovered && isStaleProviderError) {
+        facts.current.lastError = undefined;
+        rebuildSnapshot();
+      }
+
+      // Belt-and-suspenders against `isLocationSuspended` sticking: `CaptureResumed` only fires
+      // when the SDK resumes a capture that was still live. If the outage ends while stopped —
+      // tracking is off when providers recover, then a fresh start() runs clean — no
+      // CaptureResumed ever arrives, and the flag (and banner) would otherwise stay stuck true
+      // forever. A direct provider-recovery check catches that path too.
+      if (recovered && facts.current.isLocationSuspended) {
+        facts.current.isLocationSuspended = false;
         rebuildSnapshot();
       }
     },
@@ -520,6 +561,16 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       if (code === 'backgroundPermissionMissing') {
         setAlwaysRationale(message);
         record('DEGRADED', `${code} — foreground tracking continues`);
+      } else if (code === 'fixTimeout' && facts.current.isLocationSuspended) {
+        // Companion of a locationDisabled outage already surfacing as the "Waiting for GPS…"
+        // banner — the one-shot this describes could not have succeeded with providers already
+        // known down, so it is not new information. Kept in the capture log for diagnostics,
+        // but not promoted to lastError: that would flash the raw error text over the banner
+        // for the same outage the banner already explains.
+        record(
+          'ERROR',
+          `${code} — ${message} (suppressed: location already known unavailable)`
+        );
       } else {
         facts.current.lastError = `${code}: ${message}`;
         record('ERROR', `${code} — ${message}`);
@@ -549,13 +600,20 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
             'POINT',
             `${event.point.accuracyM.toFixed(1)}m · ${event.point.acceptReason}`
           );
+          // A stored fix is definitive proof the pipeline recovered — clear any stale
+          // fixTimeout/locationDisabled error rather than leave it pinned on screen.
+          if (facts.current.lastError || facts.current.isLocationSuspended) {
+            facts.current.lastError = undefined;
+            facts.current.isLocationSuspended = false;
+            rebuildSnapshot();
+          }
           break;
 
         case 'locationRejected':
           record(
             event.decision.verdict.toUpperCase(),
             `${event.decision.reason} · moved ${event.decision.distanceMovedM.toFixed(1)}m` +
-            ` · σ${event.decision.sigma.toFixed(1)}/${event.decision.threshold.toFixed(1)}`
+              ` · σ${event.decision.sigma.toFixed(1)}/${event.decision.threshold.toFixed(1)}`
           );
           break;
 
@@ -622,8 +680,8 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
           record(
             'BATTERY',
             `${event.battery.percent ?? '—'}%` +
-            `${event.battery.isCharging ? ' (charging)' : ''}` +
-            `${event.battery.isLow ? ' · low' : ''}`
+              `${event.battery.isCharging ? ' (charging)' : ''}` +
+              `${event.battery.isLow ? ' · low' : ''}`
           );
           break;
 
@@ -641,6 +699,17 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
 
         case 'diagnostic':
           record('DIAG', event.message);
+          // The SDK's own words for entering/leaving a provider outage it is retrying on its
+          // own — matched by message text because the union has no typed case for either yet
+          // (they arrive as `unhandled TrackerEvent: Capture{Suspended,Resumed}`).
+          if (event.message.includes('CaptureSuspended')) {
+            facts.current.isLocationSuspended = true;
+            rebuildSnapshot();
+          } else if (event.message.includes('CaptureResumed')) {
+            facts.current.isLocationSuspended = false;
+            facts.current.lastError = undefined;
+            rebuildSnapshot();
+          }
           break;
 
         case 'error':
@@ -658,11 +727,11 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       loadSessions,
       mutate,
       record,
+      rebuildSnapshot,
       refresh,
       refreshPermissions,
     ]
   );
-
 
   // MARK: - Lifecycle
   useEffect(() => {
@@ -686,10 +755,10 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     }
     hasStarted.current = true;
 
-    let unsubscribeEvents = () => { };
-    let unsubscribeState = () => { };
-    let unsubscribeProvider = () => { };
-    let unsubscribeBatteryThreshold = () => { };
+    let unsubscribeEvents = () => {};
+    let unsubscribeState = () => {};
+    let unsubscribeProvider = () => {};
+    let unsubscribeBatteryThreshold = () => {};
     let batteryPollTimer: ReturnType<typeof setInterval> | undefined;
 
     const boot = async () => {
@@ -842,6 +911,10 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
         facts.current.pinnedSessionId = undefined;
         setSelectedSessionId(undefined);
         facts.current.lastError = undefined;
+        // NOT isLocationSuspended: start() resolving ok means tracking is enabled at the API
+        // level, not that providers are healthy. The SDK can suspend capture the same instant
+        // (see CaptureSuspended racing this branch) — clobbering the flag here let a same-cycle
+        // fixTimeout slip past the dedupe guard in handleError and get promoted to lastError.
         record('START', `session ${result.value.id.slice(0, 8)}`);
 
         unsubscribePoints.current();
@@ -868,7 +941,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
   const stop = useCallback(async () => {
     note('NOTE', 'stop requested');
     unsubscribePoints.current();
-    unsubscribePoints.current = () => { };
+    unsubscribePoints.current = () => {};
     const result = await Tracker.stop();
     if (result.ok) {
       record(
@@ -989,7 +1062,16 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await Share.share({ message: captureLog.text() });
+      // Every line is appended to disk as it is written (see CaptureLog); flush waits for that
+      // queue to drain so the shared file reflects everything up to this press, not everything up
+      // to the last completed disk write.
+      await captureLog.flush();
+      await Share.open({
+        url: `file://${captureLog.filePath}`,
+        type: 'text/plain',
+        filename: 'capture-log',
+        failOnCancel: false,
+      });
     } catch (error) {
       record('LOG', `share failed — ${String(error)}`);
     }
