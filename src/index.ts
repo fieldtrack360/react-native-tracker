@@ -8,6 +8,7 @@ import type {
   Geofence,
   GeofenceCrossing,
   GeofenceEventsQuery,
+  GeofenceEventsWindow,
   IntegrityReport,
   LicenseInfo,
   MotionAuthorization,
@@ -233,8 +234,15 @@ const geofences = {
     TrackerNative.geofenceRemoveAll() as Promise<TrackerResult<number>>,
   getEvents: (opts?: GeofenceEventsQuery): Promise<GeofenceCrossing[]> =>
     TrackerNative.geofenceGetEvents(obj(opts)) as Promise<GeofenceCrossing[]>,
-  deleteEvents: (geofenceId?: string): Promise<number> =>
-    TrackerNative.geofenceDeleteEvents(geofenceId),
+  // deleteEvents(id?, window?) — the window is the same {fromMs, toMs} getEvents() takes, and both
+  // arguments fold into the one object the native side receives.
+  deleteEvents: (
+    geofenceId?: string,
+    window?: GeofenceEventsWindow
+  ): Promise<number> =>
+    TrackerNative.geofenceDeleteEvents(
+      obj({ ...(geofenceId != null ? { geofenceId } : {}), ...window })
+    ),
 };
 
 // ── iOS-only namespace — rejects unsupportedOnPlatform on Android ─────────────────

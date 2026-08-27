@@ -104,7 +104,8 @@ object GeofenceModule {
     }
   }
 
-  // getEvents is the source of truth. Android honours fromMs/toMs (iOS ignores them).
+  // getEvents is the source of truth. fromMs/toMs are honoured on both platforms (iOS gained
+  // them in SDK 1.0.5).
   fun getEvents(module: TrackerModule, opts: ReadableMap?, promise: Promise) {
     module.scope.launch {
       try {
@@ -123,10 +124,15 @@ object GeofenceModule {
     }
   }
 
-  fun deleteEvents(module: TrackerModule, geofenceId: String?, promise: Promise) {
+  // deleteEvents(opts?) — { geofenceId?, fromMs?, toMs? }, the same window getEvents takes. The
+  // public API's (geofenceId?, window?) pair is folded into one object in JS.
+  fun deleteEvents(module: TrackerModule, opts: ReadableMap?, promise: Promise) {
     module.scope.launch {
       try {
-        val count = module.tracker.deleteGeofenceEvents(geofenceId, null, null)
+        val id = if (opts?.hasKey("geofenceId") == true && !opts.isNull("geofenceId")) opts.getString("geofenceId") else null
+        val fromMs = if (opts?.hasKey("fromMs") == true && !opts.isNull("fromMs")) opts.getDouble("fromMs").toLong() else null
+        val toMs = if (opts?.hasKey("toMs") == true && !opts.isNull("toMs")) opts.getDouble("toMs").toLong() else null
+        val count = module.tracker.deleteGeofenceEvents(id, fromMs, toMs)
         promise.resolve(count.toDouble())
       } catch (t: Throwable) {
         promise.reject("internalError", t.message ?: "geofenceDeleteEvents failed", t)

@@ -187,8 +187,8 @@ class TrackerModule(reactContext: ReactApplicationContext) :
   override fun geofenceGetEvents(opts: ReadableMap?, promise: Promise) =
     GeofenceModule.getEvents(this, opts, promise)
 
-  override fun geofenceDeleteEvents(geofenceId: String?, promise: Promise) =
-    GeofenceModule.deleteEvents(this, geofenceId, promise)
+  override fun geofenceDeleteEvents(opts: ReadableMap?, promise: Promise) =
+    GeofenceModule.deleteEvents(this, opts, promise)
 
   // ── Subscriptions ─────────────────────────────────────────────────────────────
   // addListener/removeListeners are NativeEventEmitter bookkeeping no-ops (the RCTDeviceEventEmitter

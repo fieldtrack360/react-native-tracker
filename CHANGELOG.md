@@ -9,6 +9,80 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.6] — 2026-08-27
+
+Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.7-alpha4**
+
+The geofence surface stops being two different APIs. Every gap this release closes was an iOS
+limitation the wire had frozen into its own shape — event labels, time windows, a delete that could
+not count — and all three are native now.
+
+### Changed — action required
+
+- **`Geofence.android.onEnterEvent` / `.onExitEvent` are now flat `onEnterEvent` / `onExitEvent`.**
+  iOS `1.0.5` gave fences the same two fields, so they stop being an Android-only namespace. The
+  old sub-object is **removed, not deprecated**, and is not read as a fallback: a fence still
+  passing `android: { … }` loses its labels silently and Android falls back to its derived
+  `<id>_enter` / `<id>_exit`. Move the two keys up one level.
+
+  They stay optional on both, and read back differently: iOS omits a label it was not given,
+  Android always returns one because its native model refuses null.
+- **`config.android.useSignificantMotion` is now flat `useSignificantMotion`**, for the same reason:
+  iOS `1.0.5` has a physical wake out of stationary of its own. Unnormalized — Android's is the
+  hardware significant-motion sensor, iOS's is the pedometer with an accelerometer fallback — and
+  the iOS fallback's thresholds live in `ios.significantMotion*`. Default **true** on both.
+
+Both are wire-key removals in a patch release. Nothing else in the plugin API moves.
+
+### Added
+
+- **`GeofenceCrossing.eventName`** — the fence's label for the direction that fired, on stored
+  crossings from `getEvents()` and on live geofence events. Both platforms carried it natively and
+  the wire dropped it; iOS leaves it absent on a `dwell` (a dwell is not a crossing) and on a fence
+  added without labels.
+- **`getEvents({ fromMs, toMs })` is honoured on iOS.** The window reached Android and was dropped
+  on the floor on iOS, which had no native parameter for it until `1.0.5`. A host filtering by time
+  was reading unfiltered results on one platform.
+- **`deleteEvents(geofenceId?, window?)`** takes the same `{ fromMs, toMs }` window, so a retention
+  sweep can prune a range instead of everything. Both arguments fold into one object on the wire.
+- **Config keys for the pinned SDKs' new behaviour.** Flat, both platforms: `cornerAnchorCapture`,
+  `useGyroTurnPrediction`, `useSignificantMotion`. Under `ios`, with no Android counterpart:
+  `stationaryAccuracy`, `speedAdaptiveCadence` + `targetSpacingM` / `minIntervalMs` /
+  `maxIntervalMs`, `significantMotionSteps` / `significantMotionAccelG` /
+  `significantMotionAccelSustainMs`, and `stationaryGeofenceId` / `stationaryGeofenceOnExitEvent`.
+
+  The stationary fence's identity is deliberately **not** flat: iOS validates that the identifier
+  carries the reserved `tracker-stationary` prefix, Android's default carries a different one and
+  it only refuses a blank, so no single value would be legal on both. `android.stationaryGeofenceId`
+  and its two labels are unchanged; iOS has no enter label, because the region is armed
+  `notifyOnEntry = false`.
+
+### Fixed
+
+- **`deleteEvents()` no longer over-reports on iOS.** The count came from a separate read taken
+  before the delete, so a crossing landing between the two was counted and not deleted. The native
+  delete returns its own count as of iOS `1.0.5`.
+- **`geofences.get(id)` on iOS reads the one fence** instead of listing all of them and filtering.
+- **The Android pin actually moves to `1.0.7-alpha4`.** `1.0.5` announced the bump in its changelog
+  but left `package.json` on `1.0.7-alpha2`, so the published plugin built against the older SDK.
+
+### Changed
+
+- Native SDK pins: iOS tag `1.0.4` → `1.0.5` (`a09f653` → `e9000e4`, all five XCFramework checksums
+  re-recorded); Android `1.0.7-alpha2` → `1.0.7-alpha4`.
+- `ErrorCode`: `geofenceRegistrationFailed`, `geofenceRemovalFailed` and `geofenceLimitReached`
+  move from Android-only to shared — the iOS enum gained all three. Documentation only; the union
+  is unchanged, so no host code has to change.
+- iOS behaviour that arrives with the pin and needs no config: bearing capture at 30° (was 40°),
+  corner anchors, gyroscope turn prediction and the physical stationary wake, all on by default —
+  Android's `1.0.7-alpha4` defaults match. Tracks carry more points through curves and junctions.
+  Set `cornerAnchorCapture: false` with `bearingChangeCaptureDeg: 40` to restore the old drawing.
+- **iOS `ready()` now refuses an inverted cadence ladder.** `adaptiveCadence` on with
+  `vehicularIntervalMs` slower than `intervalMs` resolves `{ ok:false, code:'invalidConfig' }`
+  naming both values, and configures nothing — sampling fastest while parked was silent before.
+  A host that lowered `intervalMs` below the 12 s vehicular default must lower
+  `vehicularIntervalMs` to match, or set `ios.speedAdaptiveCadence` and let speed decide.
+
 ## [1.0.5] — 2026-08-27
 
 Pinned native SDKs: iOS **1.0.4** (`a09f653`) · Android **1.0.7-alpha4**
@@ -163,6 +237,7 @@ Pinned native SDKs: iOS **1.0.0** · Android **1.0.0**
   (`TrackMapView`, `LiveTrackMapView`), permissions, diagnostics, and an Expo config plugin.
 
 [Unreleased]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.5...HEAD
+[1.0.6]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.2...v1.0.3

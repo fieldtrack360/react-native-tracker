@@ -996,6 +996,8 @@ const added = await Tracker.geofences.add({
   // notifyOnEntry / notifyOnExit default to true.
   // dwellAfterMs is iOS-only; setting it (or an explicit `false` on either notify flag) on
   // Android resolves { ok:false, code:'invalidConfig' } naming the field.
+  onEnterEvent: 'depot_arrive',
+  onExitEvent: 'depot_leave',
 });
 
 const fences = await Tracker.geofences.list();
@@ -1006,7 +1008,10 @@ await Tracker.geofences.removeAll();
 // getEvents() is the SOURCE OF TRUTH. A crossing delivered to a relaunched process never reaches a
 // live JS subscriber, so poll this at launch and after backgrounding; live events are a convenience.
 const crossings = await Tracker.geofences.getEvents({ geofenceId: 'depot', limit: 50 });
+// Each crossing carries `eventName` — the fence's label for the direction that fired.
 await Tracker.geofences.deleteEvents('depot');
+// …or prune a range: every 'depot' crossing older than a week.
+await Tracker.geofences.deleteEvents('depot', { toMs: Date.now() - 7 * 86_400_000 });
 ```
 
 ---
@@ -1090,7 +1095,7 @@ unset the body is byte-identical to a build without it, so an existing backend n
 - **Android caps nesting at 10 levels** and rejects an unserializable value at `configure()` time,
   naming the key, rather than failing hours later mid-drain.
 
-Requires iOS SDK **1.0.4** / Android SDK **1.0.7-alpha4** — the pinned versions of this release.
+Requires iOS SDK **1.0.5** / Android SDK **1.0.7-alpha4** — the pinned versions of this release.
 
 `forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
 `authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
@@ -1192,8 +1197,8 @@ availability is **both platforms**.
 | `get(id)` | `string` | `Promise<Geofence \| null>` | |
 | `remove(id)` | `string` | `Promise<TrackerResult<boolean>>` | |
 | `removeAll()` | — | `Promise<TrackerResult<number>>` | |
-| `getEvents(opts?)` | `GeofenceEventsQuery` | `Promise<GeofenceCrossing[]>` | **Source of truth.** `fromMs`/`toMs` honoured on Android only |
-| `deleteEvents(geofenceId?)` | `string?` | `Promise<number>` | Omit the id to delete all |
+| `getEvents(opts?)` | `GeofenceEventsQuery` | `Promise<GeofenceCrossing[]>` | **Source of truth.** `fromMs`/`toMs` honoured on both |
+| `deleteEvents(geofenceId?, window?)` | `string?`, `GeofenceEventsWindow` | `Promise<number>` | Omit both to delete all. `window` is `{ fromMs?, toMs? }`, honoured on both |
 
 ### `Tracker.ios` — rejects `unsupportedOnPlatform` on Android
 
@@ -1278,17 +1283,19 @@ Bridge **rejections** use these codes: `invalidConfig` (bad arguments / undecoda
 
 Domain failures **resolve** with an `ErrorCode` (32 values):
 
-- **Shared (19):** `notReady`, `permissionDenied`, `backgroundPermissionMissing`, `coarseOnly`,
+- **Shared (22):** `notReady`, `permissionDenied`, `backgroundPermissionMissing`, `coarseOnly`,
   `locationDisabled`, `fgsStartRefused`, `fixTimeout`, `storageFull`, `storageReset`,
   `trackerDead`, `invalidConfig`, `motionDetectionDegraded`, `snapUnavailable`, `internalError`,
-  `licenseMissing`, `licenseInvalid`, `licenseBundleMismatch`, `licenseRevoked`, `licenseExpired`
+  `licenseMissing`, `licenseInvalid`, `licenseBundleMismatch`, `licenseRevoked`, `licenseExpired`,
+  `geofenceRegistrationFailed`, `geofenceRemovalFailed`, `geofenceLimitReached`
 - **iOS only (3):** `oneShotBusy`, `oneShotCircuitOpen`, `fixRejected` — all three from
   `getCurrentLocation()`, and none of them worth retrying
-- **Android only (10):** `playServicesUnavailable`, `notificationHidden`, `noActivity`,
-  `geofenceRegistrationFailed`, `geofenceRemovalFailed`, `geofenceLimitReached`,
+- **Android only (7):** `playServicesUnavailable`, `notificationHidden`, `noActivity`,
   `deviceIntegrityBlocked`, `licenseUnknown`, `licensePackageMismatch`, `licenseSdkMismatch`
 
-`fgsStartRefused` exists in the iOS enum but is never emitted there. `deviceIntegrityBlocked` is
+The three `geofence*` codes are shared as of the pinned iOS SDK `1.0.5`, which added them to its
+own enum; they were Android-only before it. `fgsStartRefused` exists in the iOS enum but is never
+emitted there. `deviceIntegrityBlocked` is
 release-only (the integrity layer is waived on debuggable installs) and **ends an in-flight
 session** — treat it as a stop, not a warning.
 
@@ -1372,12 +1379,13 @@ type Geofence = {
   id: string; latitude: number; longitude: number; radiusM: number;
   notifyOnEntry?: boolean; notifyOnExit?: boolean;    // default true
   dwellAfterMs?: number;                              // iOS only
-  android?: { onEnterEvent?: string; onExitEvent?: string };
+  onEnterEvent?: string; onExitEvent?: string;        // Android derives one when omitted
 };
 
 type GeofenceCrossing = {
   geofenceId: string; transition: 'enter' | 'exit' | 'dwell';
   timeMs?; latitude?; longitude?; radiusM?: number;   // absent on Android live events
+  eventName?: string;                                 // absent on a dwell / an unlabelled iOS fence
 };
 
 type SyncParamValue = string | number | boolean | null | SyncParamValue[] | { [k: string]: SyncParamValue };
@@ -1411,13 +1419,13 @@ namespaces. Every field is optional — omit it to keep the SDK default.
 | Group | Fields |
 |---|---|
 | Top level | `license`, `reset` (default **true**: the config passed to `ready()` persists; `false` → an existing persisted config wins in full) |
-| Geolocation | `trackingMode`, `desiredAccuracy`, `accuracy: { profile, maxAccuracyMeters, recoveryTrustMeters }`, `intervalMs`, `vehicularIntervalMs`, `adaptiveCadence`, `turnBurst`, `turnBurstIntervalMs`, `navigationMode`, `navigationIntervalMs`, `oneShotTimeoutMs`, `mockLocationPolicy`, `deliveryStalenessMs` |
-| Motion | `activityRecognition`, `activityConfidenceMin` (**unnormalized**: 66 iOS / 75 Android by design), `snapshotConfidenceMin`, `stopTimeoutMin`, `stationaryRadiusM`, `motionTriggerDelayMs`, `heartbeatIntervalSec`, `persistHeartbeat`, `bearingChangeCaptureDeg`, `stopOnStationary`, `disableStopDetection`, `activityRecognitionIntervalMs` (a real battery control on Android; a delivery throttle that saves nothing on iOS) |
-| Sensors | `useStepCorroboration`, `useAccelerometerVeto`, `useBarometer` |
+| Geolocation | `trackingMode`, `desiredAccuracy`, `accuracy: { profile, maxAccuracyMeters, recoveryTrustMeters }`, `intervalMs`, `vehicularIntervalMs` (**must be `<= intervalMs`** while `adaptiveCadence` is on — iOS `ready()` refuses an inverted ladder with `invalidConfig`), `adaptiveCadence`, `turnBurst`, `turnBurstIntervalMs`, `navigationMode`, `navigationIntervalMs`, `oneShotTimeoutMs`, `mockLocationPolicy`, `deliveryStalenessMs` |
+| Motion | `activityRecognition`, `activityConfidenceMin` (**unnormalized**: 66 iOS / 75 Android by design), `snapshotConfidenceMin`, `stopTimeoutMin`, `stationaryRadiusM`, `motionTriggerDelayMs`, `heartbeatIntervalSec`, `persistHeartbeat`, `bearingChangeCaptureDeg` (**30** on both since the pinned SDKs; was 40), `cornerAnchorCapture`, `stopOnStationary`, `disableStopDetection`, `activityRecognitionIntervalMs` (a real battery control on Android; a delivery throttle that saves nothing on iOS) |
+| Sensors | `useStepCorroboration`, `useAccelerometerVeto`, `useBarometer`, `useSignificantMotion` (**unnormalized**: a hardware sensor on Android, the pedometer with an accelerometer fallback on iOS), `useGyroTurnPrediction` |
 | Persistence | `maxDaysToPersist`, `persistRawFixes`, `rawFixRingCapacity`, `persistRawPoints`, `rawPointRingCapacity`, `persistDecisions`, `decisionRetentionDays`, `decisionMaxRows` |
 | Service | `healthLoopMs`, `backstopIntervalMin`, `deadTrackerMovingMin`, `deadTrackerStationaryMin` |
-| `ios` | `backgroundLocationIndicator`, `stillConfidenceMin`, `useSignificantLocationChange`, `useStationaryFence` |
-| `android` | `providerType`, `fastestIntervalMs`, `maxUpdateDelayMs`, `maxFixAgeMs`, `navigationFastestIntervalMs`, `distanceFilterM`, `maxRecords`, `useSignificantMotion`, `stepBatchLatencyMs`, `stationaryGeofenceId`, `stationaryGeofenceOnEnterEvent`, `stationaryGeofenceOnExitEvent`, `foregroundService`, `stopOnTerminate`, `enableHeadless`, `startOnBoot`, `watchdogIntervalMs`, `watchdogThrottleMs`, `wakeLockMs`, `notificationTitle`, `notificationText`, `notificationChannelId`, `notificationChannelName`, `notificationSmallIconResName` |
+| `ios` | `backgroundLocationIndicator`, `stillConfidenceMin`, `useSignificantLocationChange`, `useStationaryFence`, `stationaryAccuracy`, `speedAdaptiveCadence`, `targetSpacingM`, `minIntervalMs`, `maxIntervalMs`, `significantMotionSteps`, `significantMotionAccelG`, `significantMotionAccelSustainMs`, `stationaryGeofenceId` (must carry the reserved `tracker-stationary` prefix), `stationaryGeofenceOnExitEvent` |
+| `android` | `providerType`, `fastestIntervalMs`, `maxUpdateDelayMs`, `maxFixAgeMs`, `navigationFastestIntervalMs`, `distanceFilterM`, `maxRecords`, `stepBatchLatencyMs`, `stationaryGeofenceId`, `stationaryGeofenceOnEnterEvent`, `stationaryGeofenceOnExitEvent`, `foregroundService`, `stopOnTerminate`, `enableHeadless`, `startOnBoot`, `watchdogIntervalMs`, `watchdogThrottleMs`, `wakeLockMs`, `notificationTitle`, `notificationText`, `notificationChannelId`, `notificationChannelName`, `notificationSmallIconResName` |
 
 Per-field docblocks live in `src/types/config.ts`.
 

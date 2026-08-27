@@ -848,6 +848,19 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
         // for a delivery day; a sample whose whole purpose is diagnosis should sample at the rate
         // the thing being diagnosed happens.
         intervalMs: 1000,
+        // MUST be <= intervalMs whenever adaptiveCadence is on (it is, by default). intervalMs
+        // selects only the BASE tier, so leaving this at its 12 s default while asking for a 1 s
+        // base inverts the ladder — the SDK would sample fastest while parked and slowest while
+        // driving. iOS SDK 1.0.5 refuses that outright: ready() resolves
+        // { ok:false, code:'invalidConfig' } and configures NOTHING. The alternative is
+        // ios.speedAdaptiveCadence, which derives the cadence from speed and makes the ladder moot.
+        vehicularIntervalMs: 1000,
+        // …and the burst tier has to keep up with the tier it accelerates. Both SDKs refuse a
+        // turnBurstIntervalMs slower than that tier (EC-45/EC-121a) — a "faster" tier that is
+        // slower makes turn geometry worse while reading as a feature — and with adaptiveCadence
+        // on, the tier it accelerates is vehicularIntervalMs, now 1 s. At 1 s base the burst is a
+        // no-op by construction; the sample is already sampling as fast as the burst would.
+        turnBurstIntervalMs: 1000,
         persistRawFixes: true,
         persistRawPoints: true,
         persistDecisions: true,

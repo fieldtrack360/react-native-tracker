@@ -518,13 +518,17 @@ static NSDictionary *RCTTrackerTrackOptionsDict(JS::NativeTracker::TrackOptionsW
                            onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
-- (void)geofenceDeleteEvents:(NSString *)geofenceId
+- (void)geofenceDeleteEvents:(JS::NativeTracker::SpecGeofenceDeleteEventsOpts &)opts
                      resolve:(RCTPromiseResolveBlock)resolve
                       reject:(RCTPromiseRejectBlock)reject
 {
-  [TrackerImpl geofenceDeleteEventsGeofenceId:geofenceId
-                                    onResolve:^(NSNumber *count) { resolve(count); }
-                                     onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+  NSMutableDictionary *o = [NSMutableDictionary dictionary];
+  if (NSString *geofenceId = opts.geofenceId()) { o[@"geofenceId"] = geofenceId; }
+  if (auto v = opts.fromMs()) { o[@"fromMs"] = @(*v); }
+  if (auto v = opts.toMs()) { o[@"toMs"] = @(*v); }
+  [TrackerImpl geofenceDeleteEventsOpts:o
+                              onResolve:^(NSNumber *count) { resolve(count); }
+                               onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
 // ── Subscriptions ──────────────────────────────────────────────────────────────

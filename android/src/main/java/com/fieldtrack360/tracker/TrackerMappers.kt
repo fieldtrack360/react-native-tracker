@@ -490,26 +490,35 @@ object TrackerMappers {
   // ---- Geofencing ----
 
   // TrackerGeofence → wire. Android has no notify booleans/dwell, so those wire fields are
-  // omitted (they default true on read); the event labels are Android-only → `android`.
+  // omitted (they default true on read). The event labels are shared wire keys as of iOS SDK
+  // 1.0.5 and are written FLAT; they are always present here because the Android model refuses
+  // null and geofenceBuild derives one when the host omitted it.
   fun geofenceMap(g: TrackerGeofence): WritableMap = Arguments.createMap().apply {
     putString("id", g.id)
     putDouble("latitude", g.latitude)
     putDouble("longitude", g.longitude)
     putDouble("radiusM", g.radiusM.toDouble())
-    putMap("android", Arguments.createMap().apply {
-      putString("onEnterEvent", g.onEnterEvent)
-      putString("onExitEvent", g.onExitEvent)
-    })
+    putString("onEnterEvent", g.onEnterEvent)
+    putString("onExitEvent", g.onExitEvent)
   }
 
   // Wire geofence → native TrackerGeofence (build only; the helper performs the c/d refusal
   // checks BEFORE calling this). Android REQUIRES non-null event labels while the wire treats them
   // as optional, so absent labels are derived from the id (guide pattern: "<id>_enter"/"<id>_exit").
+  // The labels are FLAT wire keys since iOS SDK 1.0.5 gave iOS the same two fields; the old
+  // `android.onEnterEvent/onExitEvent` sub-object is gone and is not read as a fallback.
   fun geofenceBuild(w: ReadableMap): TrackerGeofence {
     val id = w.getString("id") ?: ""
-    val android = if (w.hasKey("android") && !w.isNull("android")) w.getMap("android") else null
-    val onEnter = android?.getString("onEnterEvent") ?: "${id}_enter"
-    val onExit = android?.getString("onExitEvent") ?: "${id}_exit"
+    val onEnter = if (w.hasKey("onEnterEvent") && !w.isNull("onEnterEvent")) {
+      w.getString("onEnterEvent") ?: "${id}_enter"
+    } else {
+      "${id}_enter"
+    }
+    val onExit = if (w.hasKey("onExitEvent") && !w.isNull("onExitEvent")) {
+      w.getString("onExitEvent") ?: "${id}_exit"
+    } else {
+      "${id}_exit"
+    }
     return TrackerGeofence(
       id,
       w.getDouble("latitude"),
@@ -522,7 +531,8 @@ object TrackerMappers {
 
   // TrackerGeofenceEvent → wire GeofenceCrossing. The stored event embeds the fence, so
   // lat/lon/radius come from the fence geometry (the fence centre); timestampMs is the crossing
-  // time. transition is ENTER/EXIT (no dwell on Android).
+  // time. transition is ENTER/EXIT (no dwell on Android). eventName is carried by the stored row
+  // itself and is a wire field as of iOS SDK 1.0.5 — it used to be dropped here.
   fun crossingMap(e: TrackerGeofenceEvent): WritableMap = Arguments.createMap().apply {
     putString("geofenceId", e.geofence.id)
     putString("transition", screamingSnakeToLowerCamel(e.transition.name))
@@ -530,6 +540,7 @@ object TrackerMappers {
     putDouble("latitude", e.geofence.latitude)
     putDouble("longitude", e.geofence.longitude)
     putDouble("radiusM", e.geofence.radiusM.toDouble())
+    putString("eventName", e.eventName)
   }
 
 // ══ Phase 4 subscription layer — append these inside `object TrackerMappers` ═══════════
@@ -641,12 +652,15 @@ object TrackerMappers {
   // crossing timestamp). `transition` comes from the event type (enter/exit) — the fence itself has
   // none. (Contrast crossingMap(TrackerGeofenceEvent), used by the STORED getEvents() which HAS a
   // timestampMs.)
+  // `eventName` comes from the fence's own label for the direction that fired — the same string
+  // the stored row will carry — so a live crossing and its getEvents() twin agree.
   fun crossingFromFence(g: TrackerGeofence, transition: String): WritableMap = Arguments.createMap().apply {
     putString("geofenceId", g.id)
     putString("transition", transition)
     putDouble("latitude", g.latitude)
     putDouble("longitude", g.longitude)
     putDouble("radiusM", g.radiusM.toDouble())
+    putString("eventName", if (transition == "enter") g.onEnterEvent else g.onExitEvent)
   }
 
   // ---- LiveTrackUpdate / PuckState (onLiveTrack) ----

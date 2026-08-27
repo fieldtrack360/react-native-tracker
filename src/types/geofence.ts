@@ -13,8 +13,16 @@ export type Geofence = {
   notifyOnExit?: boolean;
   /** iOS only. Set on Android → `invalidConfig`. */
   dwellAfterMs?: number;
-  /** Android's event labels; iOS has no equivalent. */
-  android?: { onEnterEvent?: string; onExitEvent?: string };
+  /** The label carried back on a crossing as `GeofenceCrossing.eventName`. Shared since iOS SDK
+   *  1.0.5 (`Geofence.onEnterEvent/onExitEvent`); before that they were Android-only and lived
+   *  under an `android` sub-object, which no longer exists.
+   *
+   *  Optional on both, with DIFFERENT read-back: iOS stores `nil` for an omitted label and
+   *  `list()`/`get()` omit the key; Android requires a non-null label, so the mapper derives
+   *  `<id>_enter` / `<id>_exit` and always reads them back. Set them explicitly if you compare
+   *  the two platforms' fences field for field. */
+  onEnterEvent?: string;
+  onExitEvent?: string;
 };
 
 // `getEvents()` is the source of truth; live events are a convenience. On Android live
@@ -27,11 +35,23 @@ export type GeofenceCrossing = {
   latitude?: number;
   longitude?: number;
   radiusM?: number;
+  /** The fence's label for this direction. Absent on a `dwell` (iOS deliberately leaves it nil —
+   *  a dwell is not a crossing) and on an iOS fence added without labels; always present on
+   *  Android, which derives one. */
+  eventName?: string;
+};
+
+/** The window `deleteEvents()` takes as its second argument. Both bounds are inclusive and both
+ *  are optional — omit them to delete every crossing the id selects. Honoured on both platforms. */
+export type GeofenceEventsWindow = {
+  fromMs?: number;
+  toMs?: number;
 };
 
 export type GeofenceEventsQuery = {
   geofenceId?: string;
-  /** Android supports time-range filtering; iOS ignores fromMs/toMs. */
+  /** Time-range filter, inclusive. Honoured on both platforms — iOS gained `fromMs`/`toMs` in
+   *  SDK 1.0.5 and silently ignored them before. */
   fromMs?: number;
   toMs?: number;
   limit?: number;

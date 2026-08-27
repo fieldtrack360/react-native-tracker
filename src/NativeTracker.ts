@@ -87,7 +87,8 @@ type GeofenceWire = {
   notifyOnEntry?: boolean;
   notifyOnExit?: boolean;
   dwellAfterMs?: number;
-  android?: { onEnterEvent?: string; onExitEvent?: string };
+  onEnterEvent?: string;
+  onExitEvent?: string;
 };
 
 type GeofenceCrossingWire = {
@@ -97,6 +98,7 @@ type GeofenceCrossingWire = {
   latitude?: number;
   longitude?: number;
   radiusM?: number;
+  eventName?: string;
 };
 
 export interface Spec extends TurboModule {
@@ -266,7 +268,7 @@ export interface Spec extends TurboModule {
     message?: string;
   }>;
   // getEvents is the source of truth. opts: { geofenceId?, fromMs?, toMs?, limit?, offset? }
-  // (fromMs/toMs honored on Android only).
+  // (fromMs/toMs honored on both platforms).
   geofenceGetEvents(opts?: {
     geofenceId?: string;
     fromMs?: number;
@@ -274,7 +276,13 @@ export interface Spec extends TurboModule {
     limit?: number;
     offset?: number;
   }): Promise<GeofenceCrossingWire[]>;
-  geofenceDeleteEvents(geofenceId?: string): Promise<number>;
+  // deleteEvents takes the same window. The public API keeps its (geofenceId?, window?) shape and
+  // folds both into this one object.
+  geofenceDeleteEvents(opts?: {
+    geofenceId?: string;
+    fromMs?: number;
+    toMs?: number;
+  }): Promise<number>;
 
   // ── Subscriptions (Phase 4) ──────────────────────────────────────────────────
   // NativeEventEmitter contract (addListener/removeListeners are bookkeeping no-ops). Native emits

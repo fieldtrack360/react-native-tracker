@@ -3,8 +3,11 @@ import TrackerCore
 
 // Geofencing — iOS half. Return types take the Android shape (TrackerResult); the bare Bool/Int
 // from removeGeofence/removeAllGeofences are wrapped in { ok:true } here (a — wrapping a
-// success is lossless). get(id) is shimmed by filtering getGeofences() (b). All wire
-// vocabulary/renames live in TrackerMappers.
+// success is lossless). All wire vocabulary/renames live in TrackerMappers.
+//
+// SDK 1.0.5 retired three shims that lived here: get(id) filtered getGeofences(), getEvents()
+// dropped fromMs/toMs because the native signature had none, and deleteEvents() counted the rows
+// with a second read before deleting them. All three are native now and the plugin pins 1.0.5.
 extension TrackerImpl {
 
   /// add — wire fence → native, then addGeofence → TrackerResult wire. dwellAfterMs and the
@@ -39,13 +42,13 @@ extension TrackerImpl {
     }
   }
 
-  /// get(id) — iOS shim: filter getGeofences() (b). Resolves nil when not found.
+  /// get(id) — native since SDK 1.0.5. Resolves nil when not found.
   @objc(geofenceGetId:onResolve:onReject:)
   public static func geofenceGet(id: String,
                                  onResolve: @escaping (NSDictionary?) -> Void,
                                  onReject: @escaping (NSString, NSString) -> Void) {
     Task {
-      if let g = await Tracker.shared.getGeofences().first(where: { $0.id == id }) {
+      if let g = await Tracker.shared.getGeofence(id: id) {
         onResolve(TrackerMappers.geofenceDict(g) as NSDictionary)
       } else {
         onResolve(nil)
@@ -74,18 +77,25 @@ extension TrackerImpl {
     }
   }
 
-  /// getEvents(opts?) — the source of truth. iOS ignores fromMs/toMs (not in the native
-  /// signature); honours geofenceId/limit/offset (defaults 200/0). Throws → reject.
+  /// getEvents(opts?) — the source of truth. Honours geofenceId/fromMs/toMs/limit/offset
+  /// (defaults 200/0); fromMs/toMs are native as of SDK 1.0.5 and were dropped on the floor
+  /// before it, which Android never did. Throws → reject.
   @objc(geofenceGetEventsOpts:onResolve:onReject:)
   public static func geofenceGetEvents(opts: NSDictionary?,
                                        onResolve: @escaping (NSArray) -> Void,
                                        onReject: @escaping (NSString, NSString) -> Void) {
     let geofenceID = opts?["geofenceId"] as? String
+    let fromMs = (opts?["fromMs"] as? NSNumber)?.int64Value
+    let toMs = (opts?["toMs"] as? NSNumber)?.int64Value
     let limit = (opts?["limit"] as? NSNumber).map { Int(truncating: $0) } ?? 200
     let offset = (opts?["offset"] as? NSNumber).map { Int(truncating: $0) } ?? 0
     Task {
       do {
-        let events = try await Tracker.shared.getGeofenceEvents(geofenceID: geofenceID, limit: limit, offset: offset)
+        let events = try await Tracker.shared.getGeofenceEvents(geofenceID: geofenceID,
+                                                                fromMs: fromMs,
+                                                                toMs: toMs,
+                                                                limit: limit,
+                                                                offset: offset)
         onResolve(events.map { TrackerMappers.crossingDict($0) } as NSArray)
       } catch {
         onReject("internalError" as NSString, error.localizedDescription as NSString)
@@ -93,16 +103,22 @@ extension TrackerImpl {
     }
   }
 
-  /// deleteEvents(geofenceId?) — iOS's native delete returns Void; the wire returns a count, so
-  /// the pre-delete count is read first (a read, not invented behaviour) and resolved. Throws → reject.
-  @objc(geofenceDeleteEventsGeofenceId:onResolve:onReject:)
-  public static func geofenceDeleteEvents(geofenceId: String?,
+  /// deleteEvents(opts?) — opts is { geofenceId?, fromMs?, toMs? }; the public API's two arguments
+  /// are folded into it in JS. The native delete returns the deleted count as of SDK 1.0.5, so the
+  /// count is the delete's own answer. It used to be a separate read before the delete, which
+  /// over-reported whenever a crossing landed between the two. Throws → reject.
+  @objc(geofenceDeleteEventsOpts:onResolve:onReject:)
+  public static func geofenceDeleteEvents(opts: NSDictionary?,
                                           onResolve: @escaping (NSNumber) -> Void,
                                           onReject: @escaping (NSString, NSString) -> Void) {
+    let geofenceID = opts?["geofenceId"] as? String
+    let fromMs = (opts?["fromMs"] as? NSNumber)?.int64Value
+    let toMs = (opts?["toMs"] as? NSNumber)?.int64Value
     Task {
       do {
-        let count = try await Tracker.shared.getGeofenceEvents(geofenceID: geofenceId, limit: Int.max, offset: 0).count
-        try await Tracker.shared.deleteGeofenceEvents(geofenceID: geofenceId)
+        let count = try await Tracker.shared.deleteGeofenceEvents(geofenceID: geofenceID,
+                                                                  fromMs: fromMs,
+                                                                  toMs: toMs)
         onResolve(NSNumber(value: count))
       } catch {
         onReject("internalError" as NSString, error.localizedDescription as NSString)

@@ -277,6 +277,9 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
   if (root.has("bearingChangeCaptureDeg")) {
     motion = motion.copy(bearingChangeCaptureDeg = root.optInt("bearingChangeCaptureDeg"))
   }
+  if (root.has("cornerAnchorCapture")) {
+    motion = motion.copy(cornerAnchorCapture = root.optBoolean("cornerAnchorCapture"))
+  }
   android?.let { block ->
     if (block.has("stationaryGeofenceId")) {
       motion = motion.copy(stationaryGeofenceId = block.optString("stationaryGeofenceId"))
@@ -335,10 +338,15 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
   if (root.has("useBarometer")) {
     sensors = sensors.copy(useBarometer = root.optBoolean("useBarometer"))
   }
+  // Flat since iOS gained a wake path of its own (SDK 1.0.5); it was `android.useSignificantMotion`
+  // and the namespaced key is no longer read.
+  if (root.has("useSignificantMotion")) {
+    sensors = sensors.copy(useSignificantMotion = root.optBoolean("useSignificantMotion"))
+  }
+  if (root.has("useGyroTurnPrediction")) {
+    sensors = sensors.copy(useGyroTurnPrediction = root.optBoolean("useGyroTurnPrediction"))
+  }
   android?.let { block ->
-    if (block.has("useSignificantMotion")) {
-      sensors = sensors.copy(useSignificantMotion = block.optBoolean("useSignificantMotion"))
-    }
     if (block.has("stepBatchLatencyMs")) {
       sensors = sensors.copy(stepBatchLatencyMs = block.optLong("stepBatchLatencyMs"))
     }

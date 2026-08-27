@@ -3,6 +3,10 @@
 // The union of both platforms — 32 codes. Type `code` as this union; render verbatim, never
 // rewrite. `fgsStartRefused` is in the iOS enum but never emitted there — do not branch on it.
 //
+// The three `geofence*` codes were Android-only until iOS SDK 1.0.5 added them to its own
+// `ErrorCode`; they are shared from that pin on. A host on an older iOS SDK simply never sees
+// them from iOS — the same "in the enum, never emitted" shape as `fgsStartRefused`.
+//
 // `licenseRevoked` / `licenseExpired` come from an ONLINE licence check and are on BOTH platforms:
 // Android since v1.0.1-alpha-08, iOS since the 1.0.0 rebuild at commit b4afe5ba ("licences come
 // from the server, and revocation now sticks"). Both STOP tracking, and on iOS `start()` stays
@@ -17,7 +21,7 @@
 // the whole integrity layer is waived on a debuggable install — and it ENDS an in-flight session,
 // so a host must treat it as a stop, not a warning.
 export type ErrorCode =
-  // shared (19)
+  // shared (22)
   | 'notReady'
   | 'permissionDenied'
   | 'backgroundPermissionMissing'
@@ -38,6 +42,10 @@ export type ErrorCode =
   // Online licence check. BOTH platforms, and both END tracking:
   | 'licenseRevoked'
   | 'licenseExpired'
+  // Geofencing. Shared as of iOS SDK 1.0.5 (Android since the first release).
+  | 'geofenceRegistrationFailed'
+  | 'geofenceRemovalFailed'
+  | 'geofenceLimitReached'
   // iOS-only (3). getCurrentLocation() used to answer every failure with `fixTimeout`; the 1.0.0
   // rebuild at commit a6a19731 split out the three that must NOT be retried. Android's one-shot
   // still reports only notReady / permissionDenied / locationDisabled / fixTimeout.
@@ -51,13 +59,10 @@ export type ErrorCode =
    *  ceiling. This happens BEFORE the pipeline, so no decision row is written and the message is
    *  the only account there is. */
   | 'fixRejected'
-  // Android-only (10)
+  // Android-only (7)
   | 'playServicesUnavailable'
   | 'notificationHidden'
   | 'noActivity'
-  | 'geofenceRegistrationFailed'
-  | 'geofenceRemovalFailed'
-  | 'geofenceLimitReached'
   | 'deviceIntegrityBlocked'
   // ...these three online-check codes are diagnostic only; tracking continues:
   | 'licenseUnknown'

@@ -198,6 +198,24 @@ extension TrackerMappers {
     if let policy = root["mockLocationPolicy"] as? String, let value = MockPolicy(rawValue: policy) {
       config.geolocation.mockLocationPolicy = value
     }
+    // — the SDK 1.0.5 cadence block, iOS-only: Android's numbers reach the provider, iOS's are
+    //   software gates in front of the ingestor, so neither the coarse parked accuracy nor the
+    //   ground-spacing ladder has an Android counterpart to share a flat key with.
+    if let accuracy = ios["stationaryAccuracy"] as? String, let value = DesiredAccuracy(rawValue: accuracy) {
+      config.geolocation.stationaryAccuracy = value
+    }
+    if let speedAdaptiveCadence = ios["speedAdaptiveCadence"] as? NSNumber {
+      config.geolocation.speedAdaptiveCadence = speedAdaptiveCadence.boolValue
+    }
+    if let targetSpacingM = ios["targetSpacingM"] as? NSNumber {
+      config.geolocation.targetSpacingM = targetSpacingM.doubleValue
+    }
+    if let minIntervalMs = ios["minIntervalMs"] as? NSNumber {
+      config.geolocation.minIntervalMs = minIntervalMs.int64Value
+    }
+    if let maxIntervalMs = ios["maxIntervalMs"] as? NSNumber {
+      config.geolocation.maxIntervalMs = maxIntervalMs.int64Value
+    }
 
     // ── motion (wire: flat, plus ios.stillConfidenceMin) ─────────────────────
     if let activityRecognition = root["activityRecognition"] as? NSNumber {
@@ -225,6 +243,9 @@ extension TrackerMappers {
     if let bearingChangeCaptureDeg = root["bearingChangeCaptureDeg"] as? NSNumber {
       config.motion.bearingChangeCaptureDeg = bearingChangeCaptureDeg.intValue
     }
+    if let cornerAnchorCapture = root["cornerAnchorCapture"] as? NSNumber {
+      config.motion.cornerAnchorCapture = cornerAnchorCapture.boolValue
+    }
     if let stopOnStationary = root["stopOnStationary"] as? NSNumber {
       config.motion.stopOnStationary = stopOnStationary.boolValue
     }
@@ -233,6 +254,16 @@ extension TrackerMappers {
     }
     if let stillConfidenceMin = ios["stillConfidenceMin"] as? NSNumber {
       config.motion.stillConfidenceMin = stillConfidenceMin.intValue
+    }
+    // — the stationary fence's identity stays namespaced on BOTH sides: iOS validates the reserved
+    //   `tracker-stationary` prefix, Android's default carries a different one, so no single flat
+    //   value could be legal on both. iOS has no enter label — the region is armed
+    //   notifyOnEntry = false — so `android.stationaryGeofenceOnEnterEvent` has no twin here.
+    if let stationaryGeofenceId = ios["stationaryGeofenceId"] as? String {
+      config.motion.stationaryGeofenceID = stationaryGeofenceId
+    }
+    if let stationaryGeofenceOnExitEvent = ios["stationaryGeofenceOnExitEvent"] as? String {
+      config.motion.stationaryGeofenceOnExitEvent = stationaryGeofenceOnExitEvent
     }
 
     // ── persistence (wire: flat; persistHeartbeat arrives in the wire motion block) ──
@@ -273,6 +304,24 @@ extension TrackerMappers {
     }
     if let useBarometer = root["useBarometer"] as? NSNumber {
       config.sensors.useBarometer = useBarometer.boolValue
+    }
+    // — flat as of SDK 1.0.5: both platforms now have a physical wake out of stationary (a hardware
+    //   sensor on Android, the pedometer with an accelerometer fallback here) and a gyroscope turn
+    //   predictor. The fallback's own thresholds have no Android twin and stay under `ios`.
+    if let useSignificantMotion = root["useSignificantMotion"] as? NSNumber {
+      config.sensors.useSignificantMotion = useSignificantMotion.boolValue
+    }
+    if let useGyroTurnPrediction = root["useGyroTurnPrediction"] as? NSNumber {
+      config.sensors.useGyroTurnPrediction = useGyroTurnPrediction.boolValue
+    }
+    if let significantMotionSteps = ios["significantMotionSteps"] as? NSNumber {
+      config.sensors.significantMotionSteps = significantMotionSteps.intValue
+    }
+    if let significantMotionAccelG = ios["significantMotionAccelG"] as? NSNumber {
+      config.sensors.significantMotionAccelG = significantMotionAccelG.doubleValue
+    }
+    if let significantMotionAccelSustainMs = ios["significantMotionAccelSustainMs"] as? NSNumber {
+      config.sensors.significantMotionAccelSustainMs = significantMotionAccelSustainMs.int64Value
     }
     if let activityRecognitionIntervalMs = root["activityRecognitionIntervalMs"] as? NSNumber {
       config.sensors.activityRecognitionIntervalMs = activityRecognitionIntervalMs.int64Value

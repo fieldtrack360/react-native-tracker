@@ -54,6 +54,14 @@ export type TrackerConfig = {
   /** iOS `persistence` block / Android `motion` block → wire `motion`. */
   persistHeartbeat?: boolean;
   bearingChangeCaptureDeg?: number;
+  /** Shared. Holds a fix the heuristic gate rejected for one more fix and restores it as a corner
+   *  vertex if the path bent across it — a junction's apex offers only half the turn to a
+   *  backwards-looking comparison, so it used to be dropped and the drawn line ran straight across
+   *  the corner. Default **true** on both (iOS SDK 1.0.5, Android 1.0.7-alpha4); `false` with
+   *  `bearingChangeCaptureDeg: 40` restores the pre-1.0.5 drawing exactly. Only the heuristic
+   *  gate's rejections are reconsidered — impossible speed, poor accuracy and the sigma outlier
+   *  test are untouched. */
+  cornerAnchorCapture?: boolean;
   stopOnStationary?: boolean;
   disableStopDetection?: boolean;
   /** iOS `sensors` block / Android `motion` block → wire `motion`. Pass-through UNNORMALIZED:
@@ -64,6 +72,21 @@ export type TrackerConfig = {
   useStepCorroboration?: boolean;
   useAccelerometerVeto?: boolean;
   useBarometer?: boolean;
+  /** Shared, default **true** on both. A physical wake out of stationary, so leaving a stop does
+   *  not wait for a fix, a region crossing or an activity label. Pass-through UNNORMALIZED: on
+   *  Android it is the hardware significant-motion sensor; on iOS (SDK 1.0.5+) it is the pedometer,
+   *  with an accelerometer fallback where step counting is unavailable or Motion & Fitness was
+   *  declined. Neither survives process termination — the region and significant-location paths
+   *  remain what relaunches a dead process.
+   *
+   *  Was `android.useSignificantMotion` before iOS gained a wake path of its own; the namespaced
+   *  key is gone. iOS-only tuning for the fallback lives in `ios.significantMotion*`. */
+  useSignificantMotion?: boolean;
+  /** Shared, default **true** on both. Yaw rate rises the moment the wheel turns, so the turn
+   *  burst runs INTO a corner rather than out of it — the fix-to-fix heading comparison cannot
+   *  know a turn began until a whole cadence interval after it did. Registered only while fixes
+   *  report vehicular speed. */
+  useGyroTurnPrediction?: boolean;
 
   // persistence — shared, flat
   maxDaysToPersist?: number;
@@ -88,6 +111,48 @@ export type TrackerConfig = {
     stillConfidenceMin?: number;
     useSignificantLocationChange?: boolean;
     useStationaryFence?: boolean;
+
+    // ── SDK 1.0.5 ──────────────────────────────────────────────────────────────
+    /** The one setting on iOS that reduces GNSS power, applied while parked. Off by default
+     *  (absent = the SDK keeps `desiredAccuracy` at all times), deliberately: a coarser fix while
+     *  stationary weakens both the anchor-radius net and the pipeline's judgement of drift.
+     *  Android has no counterpart — its cadence numbers reach the provider, iOS's do not. */
+    stationaryAccuracy?: DesiredAccuracy;
+    /** Hold spacing on the GROUND instead of in time: roughly `targetSpacingM` apart at any speed,
+     *  between `minIntervalMs` and `maxIntervalMs`, instead of the fixed `intervalMs` /
+     *  `vehicularIntervalMs` ladder. Default false.
+     *
+     *  Also the escape hatch for the ladder: with `adaptiveCadence` on, iOS `ready()` REFUSES a
+     *  config where `vehicularIntervalMs` is slower than `intervalMs` — unless this is set, which
+     *  derives the cadence from speed and makes the comparison moot. */
+    speedAdaptiveCadence?: boolean;
+    /** Target ground spacing between fixes. Default 25. Must be > 0 when `speedAdaptiveCadence`
+     *  is on. */
+    targetSpacingM?: number;
+    /** Floor and ceiling for the derived cadence. Defaults 1_000 / 60_000. Validated only when
+     *  `speedAdaptiveCadence` is on: the floor may not go below the pipeline's own burst gate
+     *  (the extra fixes would be rejected rather than captured), and the ceiling may not sit below
+     *  the floor. */
+    minIntervalMs?: number;
+    maxIntervalMs?: number;
+    /** Tuning for the `useSignificantMotion` fallback, which has no Android twin: Android's is a
+     *  hardware sensor with nothing to tune. `significantMotionSteps` is the pedometer threshold;
+     *  the two `accel` values are the accelerometer fallback's magnitude and how long it must be
+     *  sustained. */
+    significantMotionSteps?: number;
+    significantMotionAccelG?: number;
+    significantMotionAccelSustainMs?: number;
+    /** Identity of the SDK's internal stationary wake region. Deliberately NOT flat: iOS validates
+     *  that the identifier carries the reserved `tracker-stationary` prefix — the prefix is what
+     *  lets a region armed under a previous name be recognised and retired rather than stranded
+     *  against the app-wide cap of 20 — while Android's default is `fieldtrack-stationary` and it
+     *  only refuses a blank. One shared value could not be legal on both. See
+     *  `android.stationaryGeofenceId` for the other half.
+     *
+     *  There is no `onEnterEvent` twin: iOS arms the region with `notifyOnEntry = false`, so an
+     *  enter label would be config that silently does nothing. */
+    stationaryGeofenceId?: string;
+    stationaryGeofenceOnExitEvent?: string;
   };
 
   android?: {
@@ -106,10 +171,12 @@ export type TrackerConfig = {
     /** Android-only (spec omitted it entirely). */
     distanceFilterM?: number;
     maxRecords?: number;
-    /** Permanently Android-only: a hardware wake-up with no iOS wake path to emulate. */
-    useSignificantMotion?: boolean;
     /** Permanently Android-only: CMPedometer has no batch-latency parameter. */
     stepBatchLatencyMs?: number;
+    /** Identity of the SDK's internal stationary wake region, Android's half. Any non-blank string;
+     *  the default is `fieldtrack-stationary`. Namespaced rather than flat because iOS validates a
+     *  reserved prefix its own value must carry — see `ios.stationaryGeofenceId`. Android arms the
+     *  region for both directions, so unlike iOS it has an enter label. */
     stationaryGeofenceId?: string;
     stationaryGeofenceOnEnterEvent?: string;
     stationaryGeofenceOnExitEvent?: string;

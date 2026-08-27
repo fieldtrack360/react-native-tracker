@@ -394,8 +394,11 @@ enum TrackerMappers {
 
   // MARK: - Geofencing
 
-  /// Geofence → wire. iOS carries notifyOnEntry/Exit and the optional dwellAfterMs; no
-  /// `android.onEnterEvent/onExitEvent` on iOS.
+  /// Geofence → wire. iOS carries notifyOnEntry/Exit and the optional dwellAfterMs. The event
+  /// labels are shared as of SDK 1.0.5 and are OPTIONAL here — nil means the fence has no label,
+  /// so the key is omitted rather than sent as a derived string (Android derives one because its
+  /// native model refuses null; inventing the same default here would report a label the fence
+  /// does not carry and would not appear on its crossings).
   static func geofenceDict(_ g: Geofence) -> [String: Any] {
     var d: [String: Any] = [
       "id": g.id,
@@ -406,11 +409,14 @@ enum TrackerMappers {
       "notifyOnExit": g.notifyOnExit,
     ]
     if let dwell = g.dwellAfterMs { d["dwellAfterMs"] = dwell }
+    if let onEnter = g.onEnterEvent { d["onEnterEvent"] = onEnter }
+    if let onExit = g.onExitEvent { d["onExitEvent"] = onExit }
     return d
   }
 
   /// Wire geofence → native iOS Geofence. Returns nil on a missing required field (the module
-  /// rejects invalidConfig). notify flags default true; dwellAfterMs is iOS-native so it passes.
+  /// rejects invalidConfig). notify flags default true; dwellAfterMs is iOS-native so it passes;
+  /// the event labels stay nil when absent (SDK 1.0.5+).
   static func geofenceFromWire(_ w: NSDictionary) -> Geofence? {
     guard let id = w["id"] as? String,
           let lat = (w["latitude"] as? NSNumber)?.doubleValue,
@@ -420,13 +426,17 @@ enum TrackerMappers {
     let notifyExit = (w["notifyOnExit"] as? NSNumber)?.boolValue ?? true
     let dwell = (w["dwellAfterMs"] as? NSNumber)?.int64Value
     return Geofence(id: id, latitude: lat, longitude: lon, radiusM: radius,
-                    notifyOnEntry: notifyEntry, notifyOnExit: notifyExit, dwellAfterMs: dwell)
+                    notifyOnEntry: notifyEntry, notifyOnExit: notifyExit, dwellAfterMs: dwell,
+                    onEnterEvent: w["onEnterEvent"] as? String,
+                    onExitEvent: w["onExitEvent"] as? String)
   }
 
-  /// GeofenceEvent → wire GeofenceCrossing. On iOS every field is present (getEvents() is fully
-  /// populated); transition.rawValue is already the wire vocabulary (enter/exit/dwell).
+  /// GeofenceEvent → wire GeofenceCrossing. On iOS every geometry field is present (getEvents()
+  /// is fully populated); transition.rawValue is already the wire vocabulary (enter/exit/dwell).
+  /// `eventName` (SDK 1.0.5+) is nil on a dwell and on a fence added without labels, and the key
+  /// is omitted in both cases.
   static func crossingDict(_ e: GeofenceEvent) -> [String: Any] {
-    return [
+    var d: [String: Any] = [
       "geofenceId": e.geofenceID,
       "transition": e.transition.rawValue,
       "timeMs": e.timeMs,
@@ -434,6 +444,8 @@ enum TrackerMappers {
       "longitude": e.longitude,
       "radiusM": e.radiusM,
     ]
+    if let eventName = e.eventName { d["eventName"] = eventName }
+    return d
   }
 
 // ══ Phase 4 subscription layer — append these inside `enum TrackerMappers` ═════════════
