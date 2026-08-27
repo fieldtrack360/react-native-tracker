@@ -1444,7 +1444,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-safe-area-context (5.9.0):
+  - react-native-safe-area-context (5.9.1):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -1456,8 +1456,8 @@ PODS:
     - React-graphics
     - React-ImageManager
     - React-jsi
-    - react-native-safe-area-context/common (= 5.9.0)
-    - react-native-safe-area-context/fabric (= 5.9.0)
+    - react-native-safe-area-context/common (= 5.9.1)
+    - react-native-safe-area-context/fabric (= 5.9.1)
     - React-NativeModulesApple
     - React-RCTFabric
     - React-renderercss
@@ -1467,7 +1467,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-safe-area-context/common (5.9.0):
+  - react-native-safe-area-context/common (5.9.1):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -1488,7 +1488,7 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-safe-area-context/fabric (5.9.0):
+  - react-native-safe-area-context/fabric (5.9.1):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -1881,11 +1881,75 @@ PODS:
     - React-utils (= 0.87.0)
     - ReactNativeDependencies
   - ReactNativeDependencies (0.87.0)
+  - RNCClipboard (1.16.3):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
   - RNDeviceInfo (15.0.2):
     - React-Core
   - RNFS (2.20.0):
     - React-Core
   - RNShare (12.3.1):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
+  - RNSVG (15.15.5):
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-bridging
+    - React-Core
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - RNSVG/common (= 15.15.5)
+    - Yoga
+  - RNSVG/common (15.15.5):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2018,9 +2082,11 @@ DEPENDENCIES:
   - ReactCodegen (from `build/generated/ios/ReactCodegen`)
   - ReactCommon/turbomodule/core (from `../../node_modules/react-native/ReactCommon`)
   - ReactNativeDependencies (from `../../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
+  - "RNCClipboard (from `../../node_modules/@react-native-clipboard/clipboard`)"
   - RNDeviceInfo (from `../../node_modules/react-native-device-info`)
   - RNFS (from `../../node_modules/react-native-fs`)
   - RNShare (from `../../node_modules/react-native-share`)
+  - RNSVG (from `../../node_modules/react-native-svg`)
   - SocketRocket (from `build/rndeps-facades/SocketRocket`)
   - Tracker (from `../..`)
   - Yoga (from `../../node_modules/react-native/ReactCommon/yoga`)
@@ -2201,12 +2267,16 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/react-native/ReactCommon"
   ReactNativeDependencies:
     :podspec: "../../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
+  RNCClipboard:
+    :path: "../../node_modules/@react-native-clipboard/clipboard"
   RNDeviceInfo:
     :path: "../../node_modules/react-native-device-info"
   RNFS:
     :path: "../../node_modules/react-native-fs"
   RNShare:
     :path: "../../node_modules/react-native-share"
+  RNSVG:
+    :path: "../../node_modules/react-native-svg"
   SocketRocket:
     :path: build/rndeps-facades/SocketRocket
   Tracker:
@@ -2264,7 +2334,7 @@ SPEC CHECKSUMS:
   React-Mapbuffer: 888d2a4a68a2f591f13d92c7746c10d032463b5b
   React-microtasksnativemodule: 12ffb3b95ec705a44b92f588a020eeffc2145f97
   React-mutationobservernativemodule: a825501a0e90527dfdb6040ae0a0f7269ac6281d
-  react-native-safe-area-context: ba57ac569ee284b5449e89c270c9c7c3773567e6
+  react-native-safe-area-context: 66d12f37271cec232fc7fd28320fc209cbc128a6
   React-NativeModulesApple: a4716ae80f26c99de8619ffcd1391c5058c3e762
   React-networking: fbcd51c4ecee2c6fc5b64d6a7727a48360b3fefe
   React-oscompat: a435b7292b9ab6c674f591751c74c17071f723ce
@@ -2301,9 +2371,11 @@ SPEC CHECKSUMS:
   ReactCodegen: 4f0038d2f33bb63ee5b0edea175ce1c52dd117ee
   ReactCommon: d6c8004565a3adf5c3802a45fad3c2ecc8b08895
   ReactNativeDependencies: ec5530432d8191b38e278117d498aaff05ea9d6f
+  RNCClipboard: 39c5def2b12677c4218b68a88ea5971ea0c0f253
   RNDeviceInfo: 4c852998208b60dc192ae3529e5867817719ad1e
   RNFS: 89de7d7f4c0f6bafa05343c578f61118c8282ed8
   RNShare: cca9107c0dcfdd92fa228116226d1189663265b4
+  RNSVG: aacbdedbac719eef30569be569c9d87e08aaefce
   SocketRocket: 37aec555668fb852ec12e3c0de59a86ca58f0871
   Tracker: 34601b58502c0b925ebe76ee7e87bebb4e855e67
   Yoga: bae35227863013a26b8b43ac24a64c72b7e8baed

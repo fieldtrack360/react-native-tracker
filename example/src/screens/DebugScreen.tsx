@@ -9,6 +9,7 @@ import { font, radius, spacing, useTheme } from '../theme';
 import {
   ActionButton,
   ActionRow,
+  CollapseChevron,
   ContentUnavailable,
   DiagnosticCard,
   ExplanationBox,
@@ -71,6 +72,7 @@ type Layers = {
 };
 
 export function DebugScreen() {
+  const theme = useTheme();
   const tracking = useTracking();
 
   const [state, setState] = useState<ViewState<Layers>>({ kind: 'idle' });
@@ -78,6 +80,10 @@ export function DebugScreen() {
     new Set(['raw', 'filter', 'stored'])
   );
   const [isLive, setIsLive] = useState(true);
+  /// Collapsed by default, like the diagnostics on Home and the lists on Fences. The layer chips
+  /// are a filter over the detail cards below, so a tester opens this card to change what is shown
+  /// and closes it again.
+  const [isLayersExpanded, setIsLayersExpanded] = useState(false);
   const isLiveRef = useRef(isLive);
   isLiveRef.current = isLive;
 
@@ -220,42 +226,69 @@ export function DebugScreen() {
       </DiagnosticCard>
 
       {state.kind === 'loading' || state.kind === 'idle' ? (
-        <DiagnosticCard title="Layers" glyph="🔶">
-          <ActivityIndicator />
-          <Note>Reading layers…</Note>
+        <DiagnosticCard
+          title="Layers"
+          glyph="🔶"
+          onHeaderPress={() => setIsLayersExpanded((expanded) => !expanded)}
+          right={<CollapseChevron expanded={isLayersExpanded} theme={theme} />}
+        >
+          {isLayersExpanded ? (
+            <>
+              <ActivityIndicator />
+              <Note>Reading layers…</Note>
+            </>
+          ) : null}
         </DiagnosticCard>
       ) : null}
 
       {state.kind === 'failed' ? (
-        <DiagnosticCard title="Layers" glyph="🔶">
-          <ContentUnavailable
-            glyph="🔶"
-            title="No layers to read"
-            message={state.message}
-            actionTitle="Reload"
-            onAction={() => void read(true)}
-          />
+        <DiagnosticCard
+          title="Layers"
+          glyph="🔶"
+          onHeaderPress={() => setIsLayersExpanded((expanded) => !expanded)}
+          right={<CollapseChevron expanded={isLayersExpanded} theme={theme} />}
+        >
+          {isLayersExpanded ? (
+            <ContentUnavailable
+              glyph="🔶"
+              title="No layers to read"
+              message={state.message}
+              actionTitle="Reload"
+              onAction={() => void read(true)}
+            />
+          ) : null}
         </DiagnosticCard>
       ) : null}
 
       {layers ? (
         <>
-          <DiagnosticCard title="Layers" glyph="🔶">
-            <View style={{ flexDirection: 'row', gap: spacing.tight }}>
-              {[layers.raw, layers.filter, layers.stored].map((data) => (
-                <LayerChip
-                  key={data.id}
-                  data={data}
-                  isVisible={visible.has(data.id)}
-                  onPress={() => toggle(data.id)}
-                />
-              ))}
-            </View>
-            <Note>
-              Turning a layer off is how the rule below is actually applied —
-              isolate two and the question "is the artefact already here"
-              answers itself. Hiding a layer never changes what was read.
-            </Note>
+          <DiagnosticCard
+            title="Layers"
+            glyph="🔶"
+            onHeaderPress={() => setIsLayersExpanded((expanded) => !expanded)}
+            right={
+              <CollapseChevron expanded={isLayersExpanded} theme={theme} />
+            }
+          >
+            {isLayersExpanded ? (
+              <>
+                <View style={{ flexDirection: 'row', gap: spacing.tight }}>
+                  {[layers.raw, layers.filter, layers.stored].map((data) => (
+                    <LayerChip
+                      key={data.id}
+                      data={data}
+                      isVisible={visible.has(data.id)}
+                      onPress={() => toggle(data.id)}
+                    />
+                  ))}
+                </View>
+                <Note>
+                  Turning a layer off is how the rule below is actually applied
+                  — isolate two and the question "is the artefact already here"
+                  answers itself. Hiding a layer never changes what was read.
+                </Note>
+              </>
+            ) : null}
           </DiagnosticCard>
 
           {[layers.raw, layers.filter, layers.stored]
@@ -331,11 +364,11 @@ function LayerChip({
       style={{
         flex: 1,
         gap: 2,
-        padding: 8,
-        borderRadius: 8,
+        padding: 9,
+        borderRadius: radius.inner,
         borderWidth: 1,
-        borderColor: withAlpha(colour, isVisible ? 0.8 : 0.25),
-        backgroundColor: withAlpha(colour, isVisible ? 0.14 : 0),
+        borderColor: withAlpha(colour, isVisible ? 0.8 : theme.tintEdge),
+        backgroundColor: withAlpha(colour, isVisible ? theme.tintFill : 0),
         opacity: isVisible ? 1 : 0.5,
       }}
     >
@@ -372,38 +405,50 @@ function LayerDetail({ data }: { data: LayerData }) {
   const theme = useTheme();
   const colour = theme.layer[data.id];
   const extent = boundingBox(data.plottable);
+  /// Collapsed by default, like every other card on the screen: three open layer cards is a full
+  /// screen of numbers to scroll past, and a comparison starts by opening the two layers in question.
+  const [isExpanded, setIsExpanded] = useState(false);
 
   return (
-    <DiagnosticCard title={`${data.title} — ${data.source}`} glyph="📐">
-      <FactRow
-        name="Rows read"
-        value={`${data.rowCount}${data.isTruncated ? '+' : ''}`}
-        tint={colour}
-      />
-      <FactRow name="Plottable" value={data.plottable.length} />
-      {data.rowCount !== data.plottable.length ? (
-        <Note>
-          {data.rowCount - data.plottable.length} row
-          {data.rowCount - data.plottable.length === 1 ? '' : 's'} carried no
-          usable position — a decision recorded before the filter seeded holds
-          (0, 0), which is the state's own default and not a place.
-        </Note>
-      ) : null}
-      {extent ? (
+    <DiagnosticCard
+      title={`${data.title} — ${data.source}`}
+      glyph="📐"
+      onHeaderPress={() => setIsExpanded((expanded) => !expanded)}
+      right={<CollapseChevron expanded={isExpanded} theme={theme} />}
+    >
+      {isExpanded ? (
         <>
           <FactRow
-            name="North / south"
-            value={`${extent.north.toFixed(5)} / ${extent.south.toFixed(5)}`}
+            name="Rows read"
+            value={`${data.rowCount}${data.isTruncated ? '+' : ''}`}
+            tint={colour}
           />
-          <FactRow
-            name="East / west"
-            value={`${extent.east.toFixed(5)} / ${extent.west.toFixed(5)}`}
-          />
-          <FactRow name="Span" value={`${Math.round(extent.spanM)} m`} />
+          <FactRow name="Plottable" value={data.plottable.length} />
+          {data.rowCount !== data.plottable.length ? (
+            <Note>
+              {data.rowCount - data.plottable.length} row
+              {data.rowCount - data.plottable.length === 1 ? '' : 's'} carried
+              no usable position — a decision recorded before the filter seeded
+              holds (0, 0), which is the state's own default and not a place.
+            </Note>
+          ) : null}
+          {extent ? (
+            <>
+              <FactRow
+                name="North / south"
+                value={`${extent.north.toFixed(5)} / ${extent.south.toFixed(5)}`}
+              />
+              <FactRow
+                name="East / west"
+                value={`${extent.east.toFixed(5)} / ${extent.west.toFixed(5)}`}
+              />
+              <FactRow name="Span" value={`${Math.round(extent.spanM)} m`} />
+            </>
+          ) : (
+            <Note>Nothing plottable in this layer.</Note>
+          )}
         </>
-      ) : (
-        <Note>Nothing plottable in this layer.</Note>
-      )}
+      ) : null}
     </DiagnosticCard>
   );
 }
@@ -412,8 +457,9 @@ function LayerDetail({ data }: { data: LayerData }) {
 
 /// The highest-value sentence in the diagnostics doc, on the screen where it is used.
 ///
-/// It stays visible rather than living behind an info button: the person reading it is usually in a
-/// car park with a field report, and a rule that has to be found is a rule that gets guessed at.
+/// A card like the other reference cards, collapsed by default: the person reading it is usually in
+/// a car park with a field report, so it stays one tap away on this screen rather than behind an
+/// info button somewhere else.
 function DiagnosticRuleCard() {
   const theme = useTheme();
   const rule = (id: LayerId, claim: string, owner: string) => (
@@ -438,40 +484,39 @@ function DiagnosticRuleCard() {
     </View>
   );
 
+  const [isExpanded, setIsExpanded] = useState(false);
+
   return (
-    <View
-      style={{
-        gap: 8,
-        padding: 12,
-        borderRadius: radius.card,
-        backgroundColor: withAlpha(theme.secondaryLabel, 0.1),
-      }}
+    <DiagnosticCard
+      title="How to read this"
+      glyph="🧭"
+      onHeaderPress={() => setIsExpanded((expanded) => !expanded)}
+      right={<CollapseChevron expanded={isExpanded} theme={theme} />}
     >
-      <Text
-        style={{ color: theme.secondaryLabel, fontSize: 11, fontWeight: '600' }}
-      >
-        HOW TO READ THIS
-      </Text>
-      {rule(
-        'raw',
-        'Artefact already in RAW',
-        'an OS or configuration problem — check the distance filter, automatic pausing, authorization and accuracy authorization.'
-      )}
-      {rule(
-        'filter',
-        'Raw clean but FILTER wrong',
-        'a pipeline stage or a mis-tuned constant — go to the decision log for that timestamp.'
-      )}
-      {rule(
-        'stored',
-        'Filter right but STORED disagrees',
-        'a persistence or dedup bug — check the uuid derivation and the query ordering.'
-      )}
-      <Text style={{ color: theme.secondaryLabel, fontSize: 11 }}>
-        The layer an artefact first appears in names the owner. Never soften a
-        stage to fix a symptom another stage owns.
-      </Text>
-    </View>
+      {isExpanded ? (
+        <View style={{ gap: 8 }}>
+          {rule(
+            'raw',
+            'Artefact already in RAW',
+            'an OS or configuration problem — check the distance filter, automatic pausing, authorization and accuracy authorization.'
+          )}
+          {rule(
+            'filter',
+            'Raw clean but FILTER wrong',
+            'a pipeline stage or a mis-tuned constant — go to the decision log for that timestamp.'
+          )}
+          {rule(
+            'stored',
+            'Filter right but STORED disagrees',
+            'a persistence or dedup bug — check the uuid derivation and the query ordering.'
+          )}
+          <Note>
+            The layer an artefact first appears in names the owner. Never soften
+            a stage to fix a symptom another stage owns.
+          </Note>
+        </View>
+      ) : null}
+    </DiagnosticCard>
   );
 }
 

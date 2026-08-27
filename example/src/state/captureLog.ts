@@ -55,7 +55,10 @@ const KIND_WIDTH = 8;
 /// that null `Uri` to `ClipData.newUri` ("Attempt to invoke virtual method ...Uri.getScheme() on a
 /// null object reference"). Using the cache directory avoids adding a custom FileProvider + paths
 /// XML to the example app's AndroidManifest just to share one file.
-const FILE_NAME = 'capture-log.txt';
+/// Exported because Home labels the size row with it: a tester who is about to press Share should
+/// see the name of the file they are about to send, not just how big it is.
+export const CAPTURE_LOG_FILE_NAME = 'capture-log.txt';
+const FILE_NAME = CAPTURE_LOG_FILE_NAME;
 
 export class CaptureLog {
   private lines: string[] = [];

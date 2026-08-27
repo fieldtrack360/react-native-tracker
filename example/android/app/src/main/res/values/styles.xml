@@ -1,9 +1,24 @@
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
         <!-- Customize your theme here. -->
         <item name="android:editTextBackground">@drawable/rn_edit_text_material</item>
+
+        <!-- Edge-to-edge, the iOS way. The app is already laid out behind the system bars
+             (edgeToEdgeEnabled=true), but Android still paints its own bars on top: a scrim behind
+             the three-button navigation bar, and one behind the status bar. Transparent alone is
+             not enough — the platform re-adds a translucent scrim whenever it decides the content
+             behind a bar has too little contrast, which is what draws the white strip under the
+             tab bar. Both have to be switched off for the screen's own background to run to the
+             bottom edge the way it does on iOS. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
+        <!-- Dark glyphs in both bars: this is the light theme, so the bars sit on a light screen. -->
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
     </style>
 
 </resources>

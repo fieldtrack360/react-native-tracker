@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import Tracker, { type FixDecision } from '@fieldtrack360/react-native-tracker';
-import { font, spacing, useTheme } from '../theme';
+import { font, radius, spacing, useTheme } from '../theme';
 import {
   ActionButton,
   ActionRow,
   Chip,
+  CollapseChevron,
   ContentUnavailable,
   DiagnosticCard,
+  LogPaneRow,
+  LogPaneShell,
   Note,
   Screen,
   SessionPicker,
@@ -49,6 +52,11 @@ export function DecisionsScreen() {
   /// All three on, so the first thing a tester sees is the whole log rather than a slice they did
   /// not ask for.
   const [enabled, setEnabled] = useState<Set<VerdictId>>(new Set(VERDICTS));
+  /// Collapsed by default, like the reference cards: the summary is read when a run looks wrong,
+  /// not on every glance at the log.
+  const [isTopReasonsExpanded, setIsTopReasonsExpanded] = useState(false);
+  /// Expanded by default, unlike the reference cards: the log is what the screen is for.
+  const [isLogExpanded, setIsLogExpanded] = useState(true);
 
   const pinned = tracking.selectedSessionId;
 
@@ -191,47 +199,75 @@ export function DecisionsScreen() {
           <DiagnosticCard
             title={`Top reasons — ${visible.length} shown of ${log.rows.length}`}
             glyph="🔢"
+            onHeaderPress={() =>
+              setIsTopReasonsExpanded((expanded) => !expanded)
+            }
+            right={
+              <CollapseChevron expanded={isTopReasonsExpanded} theme={theme} />
+            }
           >
-            {/* Computed over the VISIBLE rows on purpose: filtering to Reject and reading the top
+            {isTopReasonsExpanded ? (
+              <>
+                {/* Computed over the VISIBLE rows on purpose: filtering to Reject and reading the top
                 four reject reasons is the fastest route from "the track stopped" to the stage that
                 stopped it. */}
-            <Text
-              style={{
-                color: theme.label,
-                fontFamily: font.mono,
-                fontSize: 12,
-              }}
-            >
-              {topReasons(visible)
-                .map(([reason, count]) => `${reason}×${count}`)
-                .join('  ·  ') || '—'}
-            </Text>
-            {log.truncated ? (
-              <Note>
-                Newest {log.rows.length} verdicts only — older ones are not in
-                this summary.
-              </Note>
+                <Text
+                  style={{
+                    color: theme.label,
+                    fontFamily: font.mono,
+                    fontSize: 12,
+                  }}
+                >
+                  {topReasons(visible)
+                    .map(([reason, count]) => `${reason}×${count}`)
+                    .join('  ·  ') || '—'}
+                </Text>
+                {log.truncated ? (
+                  <Note>
+                    Newest {log.rows.length} verdicts only — older ones are not
+                    in this summary.
+                  </Note>
+                ) : null}
+              </>
             ) : null}
           </DiagnosticCard>
 
           <ExpectedShapes forcedResets={forcedResets} />
 
-          <DiagnosticCard title="Log — newest first" glyph="📓">
-            {visible.slice(0, 300).map((row, index) => (
-              <DecisionRow key={`${index}-${row.reason}`} decision={row} />
-            ))}
-            {visible.length > 300 ? (
-              <Note>
-                Showing the newest 300 of {visible.length} matching rows. The
-                summary above is computed over all of them.
-              </Note>
+          <DiagnosticCard
+            title="Log"
+            glyph="📓"
+            onHeaderPress={() => setIsLogExpanded((expanded) => !expanded)}
+            right={<CollapseChevron expanded={isLogExpanded} theme={theme} />}
+          >
+            {isLogExpanded ? (
+              <>
+                {/* The same fixed-height pane as the event feed on Home: three hundred verdicts
+                    rendered inline pushed every note under them off the bottom of a long scroll. */}
+                <LogPaneShell>
+                  {visible.slice(0, 300).map((row, index) => (
+                    <LogPaneRow
+                      key={`${index}-${row.reason}`}
+                      first={index === 0}
+                    >
+                      <DecisionRow decision={row} />
+                    </LogPaneRow>
+                  ))}
+                </LogPaneShell>
+                {visible.length > 300 ? (
+                  <Note>
+                    Showing the newest 300 of {visible.length} matching rows.
+                    The summary above is computed over all of them.
+                  </Note>
+                ) : null}
+                <Note>
+                  The wire FixDecision carries no fix timestamp, provider or
+                  accuracy, so those three columns from the iOS row are absent
+                  here. moved, σ, gate and spd are the numbers every rejection
+                  is argued from, and all four cross.
+                </Note>
+              </>
             ) : null}
-            <Note>
-              The wire FixDecision carries no fix timestamp, provider or
-              accuracy, so those three columns from the iOS row are absent here.
-              moved, σ, gate and spd are the numbers every rejection is argued
-              from, and all four cross.
-            </Note>
           </DiagnosticCard>
         </>
       ) : null}
@@ -251,18 +287,20 @@ function DecisionRow({ decision }: { decision: FixDecision }) {
   const colour = theme.verdict[id];
 
   return (
-    <View style={{ gap: 4, paddingVertical: 4 }}>
+    <View style={{ gap: 4 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Text
           style={{
             color: colour,
-            backgroundColor: withAlpha(colour, 0.2),
+            // The same weight and corner as a `Pill`, which is what this is — inline text rather
+            // than the component only because it has to sit on the reason's baseline.
+            backgroundColor: withAlpha(colour, theme.tintFill),
             fontFamily: font.mono,
-            fontSize: 10,
+            fontSize: font.pill,
             fontWeight: '700',
-            paddingHorizontal: 6,
-            paddingVertical: 2,
-            borderRadius: 4,
+            paddingHorizontal: spacing.tight,
+            paddingVertical: spacing.hair + 1,
+            borderRadius: radius.pill,
             overflow: 'hidden',
           }}
         >
@@ -305,23 +343,37 @@ function DecisionRow({ decision }: { decision: FixDecision }) {
 /// The two shapes worth memorising, printed where the numbers are, so a tester can compare without
 /// leaving the screen or opening a document.
 function ExpectedShapes({ forcedResets }: { forcedResets: number }) {
+  const theme = useTheme();
+  /// Collapsed by default, like the other reference cards: it is a yardstick a tester opens once to
+  /// compare against, not something to scroll past on every read of the log.
+  const [isExpanded, setIsExpanded] = useState(false);
+
   return (
-    <DiagnosticCard title="What healthy looks like" glyph="🩺">
-      <Note>
-        🅿️ A parked hour is dominated by Drift Suppressed, Heartbeat Skipped and
-        Sigma Gate Outlier, with almost no accepts. Many accepts while parked
-        means broken speed-validity flags or a missing wobble guard.
-      </Note>
-      <Note>
-        🚗 A healthy 30-minute drive is 25–35 vehicular accepts, a handful of
-        rejects at signal-poor spots, and no Sigma Forced Reset at all.
-      </Note>
-      {forcedResets > 0 ? (
-        <Note>
-          ⚠️ Sigma Forced Reset ×{forcedResets} on this page. Repeated forced
-          resets mean the drift-tolerance scaling is not doing its job — do not
-          widen the sigma gate to hide it.
-        </Note>
+    <DiagnosticCard
+      title="What healthy looks like"
+      glyph="🩺"
+      onHeaderPress={() => setIsExpanded((expanded) => !expanded)}
+      right={<CollapseChevron expanded={isExpanded} theme={theme} />}
+    >
+      {isExpanded ? (
+        <>
+          <Note>
+            🅿️ A parked hour is dominated by Drift Suppressed, Heartbeat Skipped
+            and Sigma Gate Outlier, with almost no accepts. Many accepts while
+            parked means broken speed-validity flags or a missing wobble guard.
+          </Note>
+          <Note>
+            🚗 A healthy 30-minute drive is 25–35 vehicular accepts, a handful
+            of rejects at signal-poor spots, and no Sigma Forced Reset at all.
+          </Note>
+          {forcedResets > 0 ? (
+            <Note>
+              ⚠️ Sigma Forced Reset ×{forcedResets} on this page. Repeated
+              forced resets mean the drift-tolerance scaling is not doing its
+              job — do not widen the sigma gate to hide it.
+            </Note>
+          ) : null}
+        </>
       ) : null}
     </DiagnosticCard>
   );

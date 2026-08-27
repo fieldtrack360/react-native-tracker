@@ -2,6 +2,7 @@ import UIKit
 import SwiftUI
 import TrackerCore
 import TrackerGeo
+import MapKit
 import TrackerMaps
 
 // — iOS map hosts. These @objc UIView subclasses own the SwiftUI hosting; the ObjC++
@@ -16,6 +17,26 @@ import TrackerMaps
 // ── Wire → native reconstruction (see reconstructionNotes) ────────────────────
 
 enum TrackerMapReconstruct {
+
+  /// Wire colour -> SwiftUI Color. Accepts "#RGB", "#RGBA", "#RRGGBB", "#RRGGBBAA" (with or
+  /// without the leading "#"). Anything else returns nil so the caller keeps the SDK default —
+  /// a typo in a style prop must never blank out the path.
+  static func color(_ raw: Any?) -> Color? {
+    guard let s = (raw as? String)?.trimmingCharacters(in: .whitespaces) else { return nil }
+    var hex = s.hasPrefix("#") ? String(s.dropFirst()) : s
+    // Expand the shorthand forms: RGB(A) -> RRGGBB(AA).
+    if hex.count == 3 || hex.count == 4 {
+      hex = hex.map { "\($0)\($0)" }.joined()
+    }
+    guard hex.count == 6 || hex.count == 8,
+          let value = UInt64(hex, radix: 16) else { return nil }
+    let hasAlpha = hex.count == 8
+    let r = Double((value >> (hasAlpha ? 24 : 16)) & 0xFF) / 255
+    let g = Double((value >> (hasAlpha ? 16 : 8)) & 0xFF) / 255
+    let b = Double((value >> (hasAlpha ? 8 : 0)) & 0xFF) / 255
+    let a = hasAlpha ? Double(value & 0xFF) / 255 : 1
+    return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
+  }
 
   /// Rebuild a TrackerGeo.Track from the wire Track JSON (src/types/track.ts).
   ///
@@ -82,9 +103,9 @@ enum TrackerMapReconstruct {
     }
   }
 
-  /// Apply the documented SCALAR/bool overrides from the divergent `options` JSON onto a fresh
-  /// RenderOptions. Colours and the rest are left at their SDK defaults (reconciliation: parse the
-  /// remaining iOS-only RenderOptions fields — speedBand colours, halo opacities — as needed).
+  /// Apply the documented overrides from the divergent `options` JSON onto a fresh RenderOptions.
+  /// Scalars/bools come through as numbers; every colour is a hex string ("#RRGGBB[AA]") and an
+  /// unparseable one keeps the SDK default rather than blanking the layer it styles.
   static func renderOptions(fromWireJSON json: String?) -> RenderOptions {
     var o = RenderOptions()
     guard let json, let data = json.data(using: .utf8),
@@ -92,6 +113,13 @@ enum TrackerMapReconstruct {
       return o
     }
     if let v = m["showArrows"] as? Bool { o.showArrows = v }
+    // Path colours. basePathColor is the casing drawn UNDER the speed bands, so a dark base with a
+    // narrower, brighter speedOverlayWidth reads as an outlined route instead of a flat slab.
+    if let c = color(m["basePathColor"]) { o.basePathColor = c }
+    if let c = color(m["gapColor"]) { o.gapColor = c }
+    if let c = color(m["speedBandGreen"]) { o.speedBandGreen = c }
+    if let c = color(m["speedBandYellow"]) { o.speedBandYellow = c }
+    if let c = color(m["speedBandRed"]) { o.speedBandRed = c }
     if let v = m["showStopPins"] as? Bool { o.showStopPins = v }
     if let v = (m["arrowSize"] as? NSNumber)?.doubleValue { o.arrowSize = CGFloat(v) }
     if let v = (m["stopPinSize"] as? NSNumber)?.doubleValue { o.stopPinSize = CGFloat(v) }
@@ -102,7 +130,7 @@ enum TrackerMapReconstruct {
     if let v = (m["twoPointCameraPadding"] as? NSNumber)?.doubleValue { o.twoPointCameraPadding = CGFloat(v) }
     if let v = (m["ongoingPulseSeconds"] as? NSNumber)?.doubleValue { o.ongoingPulseSeconds = v }
     // Gap styling (SegmentType.gap — the unobserved span the renderer draws dashed and grey).
-    // gapColor is a Color and follows the same rule as every other colour here: SDK default.
+    // gapColor is parsed with the other colours above.
     if let v = (m["gapLineWidth"] as? NSNumber)?.doubleValue { o.gapLineWidth = CGFloat(v) }
     if let v = m["gapDashLengths"] as? [NSNumber], !v.isEmpty {
       o.gapDashLengths = v.map { CGFloat($0.doubleValue) }
@@ -119,6 +147,10 @@ enum TrackerMapReconstruct {
           let m = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
       return o
     }
+    if let c = color(m["tailColor"]) { o.tailColor = c }
+    if let c = color(m["headColor"]) { o.headColor = c }
+    if let c = color(m["puckColor"]) { o.puckColor = c }
+    if let c = color(m["haloColor"]) { o.haloColor = c }
     if let v = (m["tailWidth"] as? NSNumber)?.doubleValue { o.tailWidth = CGFloat(v) }
     if let v = (m["headWidth"] as? NSNumber)?.doubleValue { o.headWidth = CGFloat(v) }
     if let v = (m["puckSize"] as? NSNumber)?.doubleValue { o.puckSize = CGFloat(v) }
@@ -132,13 +164,63 @@ enum TrackerMapReconstruct {
   }
 }
 
+
+// ── TEMPORARY diagnostic — Apple attribution ("Maps / Legal") sits ~100pt above the map bottom.
+// Dumps the geometry chain from the RN host down to the MKMapView so the offset can be attributed
+// to a real inset instead of guessed at. Remove once the cause is fixed.
+@MainActor
+enum TrackerMapDiagnostics {
+
+  static func dump(_ tag: String, host: UIView, hostingView: UIView?) {
+    let insets = { (v: UIView) in
+      "safe=\(fmt(v.safeAreaInsets)) margins=\(fmt(v.layoutMargins))"
+    }
+    print("[TrackerMapDiag] \(tag) host bounds=\(fmt(host.bounds)) \(insets(host))")
+    if let hv = hostingView {
+      print("[TrackerMapDiag] \(tag) hosting frame=\(fmt(hv.frame)) \(insets(hv))")
+    }
+    guard let map = firstMapView(in: hostingView ?? host) else {
+      print("[TrackerMapDiag] \(tag) no MKMapView found")
+      return
+    }
+    print("[TrackerMapDiag] \(tag) map frame=\(fmt(map.frame)) " +
+          "inWindow=\(fmt(map.convert(map.bounds, to: nil))) \(insets(map))")
+    // Whatever positions the logo is a subview of the map; list the shallow ones with their frames.
+    for sub in map.subviews {
+      print("[TrackerMapDiag] \(tag)   mapsub \(type(of: sub)) frame=\(fmt(sub.frame))")
+    }
+    // Walk up from the map to the host, reporting anyone contributing an inset.
+    var v: UIView? = map
+    while let cur = v, cur !== host {
+      print("[TrackerMapDiag] \(tag)   chain \(type(of: cur)) frame=\(fmt(cur.frame)) \(insets(cur))")
+      v = cur.superview
+    }
+  }
+
+  private static func firstMapView(in view: UIView) -> MKMapView? {
+    if let m = view as? MKMapView { return m }
+    for sub in view.subviews {
+      if let m = firstMapView(in: sub) { return m }
+    }
+    return nil
+  }
+
+  private static func fmt(_ r: CGRect) -> String {
+    String(format: "(%.0f,%.0f %.0fx%.0f)", r.origin.x, r.origin.y, r.width, r.height)
+  }
+
+  private static func fmt(_ i: UIEdgeInsets) -> String {
+    String(format: "(t%.0f l%.0f b%.0f r%.0f)", i.top, i.left, i.bottom, i.right)
+  }
+}
+
 // ── <TrackMapView> host — SwiftUI TrackMapView in a UIHostingController ────────
 
 @objc(TrackMapHostView)
 @MainActor
 public final class TrackMapHostView: UIView {
 
-  private var hosting: UIHostingController<TrackMapView>?
+  private var hosting: UIHostingController<AnyView>?
   private var trackJSON: String?
   private var optionsJSON: String?
 
@@ -160,10 +242,22 @@ public final class TrackMapHostView: UIView {
     let view = TrackMapView(track: track, options: opts, onArrowZoomChange: { [weak self] zoom in
       self?.onArrowZoom?(zoom)
     })
+    // .ignoresSafeArea() is the half that actually moves the Apple attribution. safeAreaRegions
+    // below strips the insets the CONTAINER would hand down; this strips the ones the SwiftUI
+    // layout would still honour, so Map pins "Maps / Legal" to its own bounds — the map's bottom
+    // left corner — instead of floating it up over the middle of the card.
+    let root = AnyView(view.ignoresSafeArea())
     if let hc = hosting {
-      hc.rootView = view
+      hc.rootView = root
     } else {
-      let hc = UIHostingController(rootView: view)
+      let hc = UIHostingController(rootView: root)
+      // The SwiftUI Map pins the Apple attribution ("Maps / Legal") above its SAFE AREA bottom,
+      // not its bounds. A hosting controller inherits safe-area insets from the ancestor chain, so
+      // a map embedded in a scrolling card picks up the window's bottom inset (and the scroll
+      // view's adjusted inset) and floats the attribution up into the middle of the map. The host
+      // view is always laid out to an explicit RN frame — there is no safe area to respect here.
+      hc.safeAreaRegions = []
+      hc.view.insetsLayoutMarginsFromSafeArea = false
       hc.view.backgroundColor = .clear
       hc.view.frame = bounds
       hc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -176,6 +270,7 @@ public final class TrackMapHostView: UIView {
   public override func layoutSubviews() {
     super.layoutSubviews()
     hosting?.view.frame = bounds
+    TrackerMapDiagnostics.dump("track", host: self, hostingView: hosting?.view)
   }
 
   /// Fabric teardown: called from the ObjC++ view's -prepareForRecycle. SwiftUI/MKMapView is torn
@@ -192,7 +287,7 @@ public final class TrackMapHostView: UIView {
     optionsJSON = nil
   }
 
-  private func attachHostingIfPossible(_ hc: UIHostingController<TrackMapView>) {
+  private func attachHostingIfPossible(_ hc: UIHostingController<AnyView>) {
     var responder: UIResponder? = self
     while let r = responder {
       if let vc = r as? UIViewController { vc.addChild(hc); hc.didMove(toParent: vc); return }
@@ -207,7 +302,7 @@ public final class TrackMapHostView: UIView {
 @MainActor
 public final class LiveTrackMapHostView: UIView {
 
-  private var hosting: UIHostingController<LiveTrackMapView>?
+  private var hosting: UIHostingController<AnyView>?
   private var followMode: CameraFollowMode = .none
   private var initialCentre: GeoPoint?
   private var optionsJSON: String?
@@ -266,10 +361,22 @@ public final class LiveTrackMapHostView: UIView {
                                 options: opts,
                                 isFollowing: binding,
                                 initialCentre: initialCentre)
+    // .ignoresSafeArea() is the half that actually moves the Apple attribution. safeAreaRegions
+    // below strips the insets the CONTAINER would hand down; this strips the ones the SwiftUI
+    // layout would still honour, so Map pins "Maps / Legal" to its own bounds — the map's bottom
+    // left corner — instead of floating it up over the middle of the card.
+    let root = AnyView(view.ignoresSafeArea())
     if let hc = hosting {
-      hc.rootView = view
+      hc.rootView = root
     } else {
-      let hc = UIHostingController(rootView: view)
+      let hc = UIHostingController(rootView: root)
+      // The SwiftUI Map pins the Apple attribution ("Maps / Legal") above its SAFE AREA bottom,
+      // not its bounds. A hosting controller inherits safe-area insets from the ancestor chain, so
+      // a map embedded in a scrolling card picks up the window's bottom inset (and the scroll
+      // view's adjusted inset) and floats the attribution up into the middle of the map. The host
+      // view is always laid out to an explicit RN frame — there is no safe area to respect here.
+      hc.safeAreaRegions = []
+      hc.view.insetsLayoutMarginsFromSafeArea = false
       hc.view.backgroundColor = .clear
       hc.view.frame = bounds
       hc.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -282,6 +389,7 @@ public final class LiveTrackMapHostView: UIView {
   public override func layoutSubviews() {
     super.layoutSubviews()
     hosting?.view.frame = bounds
+    TrackerMapDiagnostics.dump("live", host: self, hostingView: hosting?.view)
   }
 
   @objc public func teardown() {
@@ -297,7 +405,7 @@ public final class LiveTrackMapHostView: UIView {
     latest = nil
   }
 
-  private func attachHostingIfPossible(_ hc: UIHostingController<LiveTrackMapView>) {
+  private func attachHostingIfPossible(_ hc: UIHostingController<AnyView>) {
     var responder: UIResponder? = self
     while let r = responder {
       if let vc = r as? UIViewController { vc.addChild(hc); hc.didMove(toParent: vc); return }

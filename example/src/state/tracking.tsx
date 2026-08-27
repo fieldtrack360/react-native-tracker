@@ -25,8 +25,13 @@ import Tracker, {
   type PermissionTier,
   type ProviderState,
   type TrackerEvent,
+  type TrackerResult,
+  type TrackFix,
+  type SyncConfig,
   type TrackSession,
 } from '@fieldtrack360/react-native-tracker';
+import DeviceInfo from 'react-native-device-info';
+import { createMMKV } from 'react-native-mmkv';
 import { TRACKER_LICENSE } from '@env';
 import { CaptureLog } from './captureLog';
 
@@ -114,6 +119,21 @@ export type TrackingSnapshot = {
   isLocationSuspended: boolean;
 };
 
+// MARK: - LogEntry
+
+/// One line of the on-screen event feed, kept in its three parts rather than pre-joined into a
+/// string: the Events pane badges the kind and stacks the detail under the stamp, and a renderer
+/// that has to re-split `"17:58:25  PROVIDER  auth always"` to do that breaks on the first detail
+/// containing a double space. The durable capture log is still a text file — this is the screen's
+/// copy, and only the screen's.
+export type LogEntry = {
+  /// Wall clock, HH:MM:SS. Local time on purpose: it is read against the tester's own watch.
+  stamp: string;
+  /// The channel — PROVIDER, PERM, FENCE, ERROR… Shown as the badge.
+  kind: string;
+  detail: string;
+};
+
 // MARK: - Not thresholds
 
 /// How many lines the on-screen feed keeps. A list bound, not a decision: nothing compares it, and
@@ -138,12 +158,20 @@ const BATTERY_POLL_MS = 4_000;
 /// both reads use the same bound and the warning stays honest.
 const DUMP_PAGE_SIZE = 5000;
 
+/// The configuration a restart replays. Only the url and the auto-sync flag: the bearer token is a
+/// credential and MMKV here is not encrypted, so a restored configuration goes out unauthenticated
+/// and a server that requires the header answers 401 — which tears the uploader down and clears
+/// this key, exactly as a stale token would. A host that wants the token to survive a restart
+/// should put it in the Keychain/Keystore, not here.
+const SYNC_CONFIG_KEY = 'sync.configuration';
+const syncStorage = createMMKV();
+
 // MARK: - Context
 
 type TrackingContextValue = {
   state: ViewState<TrackingSnapshot>;
   sessions: TrackSession[];
-  log: string[];
+  log: LogEntry[];
   captureLogSizeKB: number;
 
   /** SESSION PINNING. A session picked here wins over the live one, and all four diagnostic tabs
@@ -158,6 +186,22 @@ type TrackingContextValue = {
   setSnapToRoad: (value: boolean) => void;
   showRawLayer: boolean;
   setShowRawLayer: (value: boolean) => void;
+
+  /** The endpoint currently applied with `TrackerSync.configure`, or `undefined` when nothing is in
+   *  force — a 401/403 tears the uploader down and clears this. It lives here rather than in the
+   *  Sync screen because Home shows whether sync is wired, the Sync screen unmounts every time a
+   *  tester leaves the tab, and the configuration has to be re-applied on a session change whether
+   *  or not that screen is open. NOT a readback: the bridge exposes none, so this is what this app
+   *  configured, not what the engine holds. */
+  configuredSyncEndpoint?: string;
+
+  /** Wires the uploader and remembers the choice across a process death — see `configureSync` in
+   *  the provider for what is persisted and what deliberately is not. */
+  configureSync: (options: SyncOptions) => Promise<string | undefined>;
+
+  /** Tears the badge and the restored configuration down. Called on the two outcomes that stop the
+   *  uploader without the host doing anything: 401 `authExpired` and Android's 403. */
+  clearSyncConfiguration: () => void;
 
   /** Raised on `error(backgroundPermissionMissing)` and on a mid-session downgrade. A DEGRADATION,
    *  not a failure: the SDK keeps capturing in the foreground with only foreground authorization. */
@@ -182,11 +226,19 @@ type TrackingContextValue = {
   shareCaptureLog: () => Promise<void>;
   clearCaptureLog: () => void;
   dumpSession: () => Promise<void>;
-  showCurrentLocation: () => Promise<void>;
+  showCurrentLocation: () => Promise<TrackerResult<TrackFix>>;
 
   /** For the tabs that write their own lines into the shared record — the Fences and Sync screens
    *  both do, because a crossing is often the explanation for what the tracking feed did next. */
   note: (kind: string, detail: string) => void;
+};
+
+/** What the Sync screen chooses and what a restore replays. The token is part of the request, not
+ *  part of what is remembered — see `SYNC_CONFIG_KEY`. */
+export type SyncOptions = {
+  url: string;
+  bearerToken?: string;
+  autoSync: boolean;
 };
 
 const TrackingContext = createContext<TrackingContextValue | null>(null);
@@ -206,7 +258,7 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     kind: 'idle',
   });
   const [sessions, setSessions] = useState<TrackSession[]>([]);
-  const [log, setLog] = useState<string[]>([]);
+  const [log, setLog] = useState<LogEntry[]>([]);
   const [captureLogSizeKB, setCaptureLogSizeKB] = useState(0);
   const [selectedSessionId, setSelectedSessionId] = useState<
     string | undefined
@@ -216,6 +268,9 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
   const [alwaysRationale, setAlwaysRationale] = useState<string | undefined>(
     undefined
   );
+  const [configuredSyncEndpoint, setConfiguredSyncEndpoint] = useState<
+    string | undefined
+  >(undefined);
 
   const captureLog = useRef(new CaptureLog()).current;
 
@@ -255,6 +310,11 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
 
   const hasStarted = useRef(false);
 
+  /// The options last applied, kept for the session-change re-push. A ref, not state: nothing
+  /// renders it — `configuredSyncEndpoint` is what the badges read.
+  const syncConfiguration = useRef<SyncOptions | undefined>(undefined);
+  const hasRestoredSync = useRef(false);
+
   // Live sync needs an accepted-point signal per running session (Android does not auto-enqueue the
   // sync worker on accepted points even with autoSync on — requestSync() must be called after each
   // one). Re-pointed at the new session's onPoints stream on every start(), torn down on stop().
@@ -264,12 +324,11 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
 
   /// One monospaced line, newest first, capped at LOG_CAPACITY.
   const record = useCallback((kind: string, detail: string) => {
-    const padded = kind.length >= 9 ? kind : kind + ' '.repeat(9 - kind.length);
     const now = new Date();
     const two = (value: number) => String(value).padStart(2, '0');
     const stamp = `${two(now.getHours())}:${two(now.getMinutes())}:${two(now.getSeconds())}`;
     setLog((previous) =>
-      [`${stamp}  ${padded} ${detail}`, ...previous].slice(0, LOG_CAPACITY)
+      [{ stamp, kind, detail }, ...previous].slice(0, LOG_CAPACITY)
     );
   }, []);
 
@@ -1145,6 +1204,9 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       note('ONESHOT', `${result.code} — ${result.message}`);
       record('ONESHOT', `${result.code} — ${result.message}`);
     }
+    // Returned as well as logged: the button that triggers this shows the fix (or the error)
+    // right where it was pressed, rather than sending the tester hunting through Events for it.
+    return result;
   }, [note, record]);
 
   // MARK: - Session pinning
@@ -1166,6 +1228,110 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
     selectedSessionId ??
     (state.kind === 'loaded' ? state.value.sessionId : undefined);
 
+  // MARK: - Sync configuration
+
+  /// Wires the uploader, raises the badge and writes the choice down.
+  ///
+  /// Returns the error text on a bridge fault and `undefined` on success, so the screen that
+  /// pressed Configure can say what went wrong without this owning a second result field.
+  const configureSync = useCallback(
+    async (options: SyncOptions): Promise<string | undefined> => {
+      const config: SyncConfig = {
+        url: options.url,
+        method: 'POST',
+        autoSync: options.autoSync,
+        batchSize: 100,
+        extraParams: {
+          device_id: `${await DeviceInfo.getDeviceName()}-${await DeviceInfo.getUniqueId()}`,
+          ...(resolvedSessionId ? { session_id: resolvedSessionId } : {}),
+        },
+        ...(options.bearerToken
+          ? { headers: { Authorization: `Bearer ${options.bearerToken}` } }
+          : {}),
+        // The two network gates are NOT unified: "any connectivity" and "unmetered only" are
+        // different policies, so each sits in its own platform namespace and neither is collapsed.
+        ios: { requiresNetworkConnectivity: true },
+        android: { requiresUnmeteredNetwork: false },
+      };
+      try {
+        await TrackerSync.configure(config);
+      } catch (error) {
+        // A bridge fault, not a domain failure: an unparseable URL rejects rather than resolving
+        // ok:false. Nothing is remembered, because nothing was applied.
+        return String(error);
+      }
+      syncConfiguration.current = options;
+      syncStorage.set(
+        SYNC_CONFIG_KEY,
+        JSON.stringify({ url: options.url, autoSync: options.autoSync })
+      );
+      setConfiguredSyncEndpoint(options.url);
+      note(
+        'SYNC',
+        `configured endpoint=${options.url} autoSync=${options.autoSync} ` +
+          `session=${resolvedSessionId ?? 'none'}`
+      );
+      return undefined;
+    },
+    [note, resolvedSessionId]
+  );
+
+  const clearSyncConfiguration = useCallback(() => {
+    syncConfiguration.current = undefined;
+    syncStorage.remove(SYNC_CONFIG_KEY);
+    setConfiguredSyncEndpoint(undefined);
+  }, []);
+
+  /// A configuration applied before the app was killed is NOT still in force — the bridge takes a
+  /// whole SyncConfig on each call and holds nothing across a process death — so the badge would
+  /// lie if it were merely restored. This re-applies it for real, once, as soon as the SDK is up.
+  ///
+  /// Waits for `loaded` rather than firing on mount: configuring an uploader before ready() has
+  /// built the runtime is the one ordering that has no reason to work.
+  useEffect(() => {
+    if (hasRestoredSync.current || state.kind !== 'loaded') {
+      return;
+    }
+    hasRestoredSync.current = true;
+
+    const saved = syncStorage.getString(SYNC_CONFIG_KEY);
+    if (!saved) {
+      return;
+    }
+    let restored: SyncOptions | undefined;
+    try {
+      const parsed = JSON.parse(saved) as Partial<SyncOptions>;
+      restored =
+        typeof parsed.url === 'string' && parsed.url !== ''
+          ? { url: parsed.url, autoSync: parsed.autoSync !== false }
+          : undefined;
+    } catch {
+      restored = undefined;
+    }
+    if (!restored) {
+      syncStorage.remove(SYNC_CONFIG_KEY);
+      return;
+    }
+    void configureSync(restored).then((error) => {
+      if (error) {
+        note('SYNC', `restore failed — ${error}`);
+      }
+    });
+  }, [configureSync, note, state.kind]);
+
+  /// extraParams cannot be patched — the bridge takes a whole SyncConfig — so a new session means
+  /// re-applying whatever is in force with the new session_id. In the provider rather than in the
+  /// Sync screen because a run started from Home changes the session with that screen closed.
+  useEffect(() => {
+    const inForce = syncConfiguration.current;
+    if (!inForce) {
+      return;
+    }
+    void configureSync(inForce);
+    // The session id is the only trigger that belongs here; `configureSync` is rebuilt with it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedSessionId]);
+
   const value = useMemo<TrackingContextValue>(
     () => ({
       state,
@@ -1179,6 +1345,9 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       setSnapToRoad,
       showRawLayer,
       setShowRawLayer,
+      configuredSyncEndpoint,
+      configureSync,
+      clearSyncConfiguration,
       alwaysRationale,
       dismissAlwaysRationale: () => setAlwaysRationale(undefined),
       refresh,
@@ -1204,6 +1373,9 @@ export function TrackingProvider({ children }: { children: ReactNode }) {
       alwaysRationale,
       captureLogSizeKB,
       clearCaptureLog,
+      clearSyncConfiguration,
+      configureSync,
+      configuredSyncEndpoint,
       dumpSession,
       getBackgroundRequest,
       loadSessions,

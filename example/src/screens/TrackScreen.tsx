@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Platform,
+  ScrollView,
+  Text,
+  View,
+} from 'react-native';
 import Tracker, {
   LiveTrackMapView,
   TrackMapView,
@@ -7,7 +13,7 @@ import Tracker, {
   type LiveTrackUpdate,
   type Track,
 } from '@fieldtrack360/react-native-tracker';
-import { font, spacing, useTheme } from '../theme';
+import { font, radius, spacing, useTheme } from '../theme';
 import {
   Chip,
   ContentUnavailable,
@@ -40,6 +46,39 @@ import { TrackTimeline } from './TrackTimeline';
 /// prints it, so a long session is reported as clipped rather than drawn short and called complete.
 const PAGE_SIZE = 5000;
 
+/// iOS-only renderer styling. `options` is platform-divergent by design (an iOS `RenderOptions`
+/// shape here, an Android `RendererOptions` shape there), so this is `undefined` on Android and the
+/// Android map keeps the look it already has.
+///
+/// What it changes, and why. The iOS SDK defaults draw one thick band with large white chevrons
+/// stamped on top, which at street zoom covers the road the track is following. Here the line is
+/// slimmed to a single unbordered stroke — `basePathColor` matches the green band and
+/// `basePathWidth` matches `speedOverlayWidth`, so the base path never peeks out as a casing — and
+/// the chevrons are sized to sit inside it; the unobserved gap keeps a thin dashed grey of its own.
+const IOS_MAP_OPTIONS = {
+  basePathColor: '#22C55E',
+  basePathWidth: 3,
+  speedBandGreen: '#22C55E',
+  speedBandYellow: '#F59E0B',
+  speedBandRed: '#EF4444',
+  speedOverlayWidth: 5.5,
+  speedOverlayOpacity: 0.95,
+  arrowSize: 10,
+  stopPinSize: 26,
+  gapColor: '#94A3B8',
+  gapLineWidth: 3,
+  gapDashLengths: [6, 6],
+  cameraPadding: 28,
+};
+
+const MAP_OPTIONS = Platform.OS === 'ios' ? IOS_MAP_OPTIONS : undefined;
+
+/// The zoom step the arrows are rebuilt at. `onArrowZoom` (iOS only) fires on every camera settle,
+/// and a rebuild is a database read plus a full plotting pass — so a change is only honoured once
+/// it crosses half a zoom level, and the pass is debounced behind the gesture.
+const ARROW_ZOOM_STEP = 0.5;
+const ARROW_ZOOM_DEBOUNCE_MS = 400;
+
 type TrackPlot = {
   sessionId: string;
   track: Track;
@@ -49,14 +88,21 @@ type TrackPlot = {
 };
 
 export function TrackScreen() {
-  const theme = useTheme();
   const tracking = useTracking();
+  const theme = useTheme();
 
   const [state, setState] = useState<ViewState<TrackPlot>>({ kind: 'idle' });
   const [mode, setMode] = useState<'plot' | 'live'>('plot');
   const [live, setLive] = useState<LiveTrackUpdate | undefined>(undefined);
   const [rebuildToken, setRebuildToken] = useState(0);
   const [isMapExpanded, setIsMapExpanded] = useState(false);
+  // The zoom the direction arrows were built for. iOS asks for a rebuild through `onArrowZoom`;
+  // Android's renderer scales its own arrows and never emits it, so this stays undefined there and
+  // `buildTrack` keeps its default arrow spacing.
+  const [arrowZoom, setArrowZoom] = useState<number | undefined>(undefined);
+  const arrowZoomTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined
+  );
 
   const isTracking =
     tracking.state.kind === 'loaded' && tracking.state.value.isTracking;
@@ -77,7 +123,10 @@ export function TrackScreen() {
 
       const track = await Tracker.buildTrack(
         { sessionId: resolved, limit: PAGE_SIZE },
-        { snapToRoad }
+        // `zoom` is what makes the arrows follow the camera: the engine thins the anchors it emits
+        // for a wide view and packs them in for a close one. Rebuilding is the documented answer to
+        // onArrowZoom — the renderer must never rescale what it was handed.
+        { snapToRoad, zoom: arrowZoom }
       );
 
       // The count is a separate read on purpose: buildTrack sees one page, and the ratio at the top
@@ -99,7 +148,7 @@ export function TrackScreen() {
     } catch (error) {
       setState({ kind: 'failed', message: String(error) });
     }
-  }, [selection, snapToRoad]);
+  }, [selection, snapToRoad, arrowZoom]);
 
   // Every input that forces a rebuild. Toggling the raw chip is deliberately absent: it changes what
   // is reported, not what was built, and rebuilding a track to change a caption would be a database
@@ -123,6 +172,28 @@ export function TrackScreen() {
     return unsubscribe;
   }, [mode]);
 
+  // iOS only. Quantise to ARROW_ZOOM_STEP, ignore anything that lands on the step already built,
+  // and debounce so a pinch costs one rebuild rather than one per frame.
+  const handleArrowZoom = useCallback((zoom: number) => {
+    const stepped = Math.round(zoom / ARROW_ZOOM_STEP) * ARROW_ZOOM_STEP;
+    if (arrowZoomTimer.current != null) {
+      clearTimeout(arrowZoomTimer.current);
+    }
+    arrowZoomTimer.current = setTimeout(() => {
+      setArrowZoom((current) => (current === stepped ? current : stepped));
+    }, ARROW_ZOOM_DEBOUNCE_MS);
+  }, []);
+
+  // A pending rebuild must not fire into an unmounted screen.
+  useEffect(
+    () => () => {
+      if (arrowZoomTimer.current != null) {
+        clearTimeout(arrowZoomTimer.current);
+      }
+    },
+    []
+  );
+
   const plot = state.kind === 'loaded' ? state.value : undefined;
   const warnings = plot?.track.warnings ?? [];
   const isTruncated = warnings.some((warning) =>
@@ -134,15 +205,26 @@ export function TrackScreen() {
   const hasMapContent =
     mode === 'live' || (plot != null && plot.track.encodedPolyline.length > 0);
   const mapHeight = isMapExpanded ? 600 : 300;
+  const mapFrame = {
+    height: mapHeight,
+    borderRadius: radius.inner,
+    overflow: 'hidden' as const,
+    backgroundColor: theme.fill,
+  };
 
   return (
+    // Transparent, like `Screen`. An opaque ground here would paint over the root backdrop's wash
+    // and leave a hard horizontal edge where the scroll view ends and the tab bar's strip begins.
+    // This tab keeps its own ScrollView rather than using `Screen` only for the larger bottom
+    // inset the expanded map needs.
     <ScrollView
-      style={{ flex: 1, backgroundColor: theme.screen }}
+      style={{ flex: 1, backgroundColor: 'transparent' }}
       contentContainerStyle={{
         padding: spacing.screen,
         gap: spacing.section,
         paddingBottom: 48,
       }}
+      showsVerticalScrollIndicator={false}
     >
       {/* MARK: - Map */}
       <DiagnosticCard
@@ -185,11 +267,17 @@ export function TrackScreen() {
             followMode is `follow` rather than `followBearing`: north-up survives a noisy or sparse
             feed, where a chase camera spins on every heading wobble. */}
         {mode === 'live' ? (
-          <LiveTrackMapView
-            update={live}
-            followMode="followBearing"
-            style={{ height: mapHeight, borderRadius: 8 }}
-          />
+          // The clip lives on a wrapper, not on the map. A `borderRadius` on the map view itself is
+          // honoured on iOS and ignored on Android — the GoogleMap surface is a separate texture
+          // that does not take its parent's corner radius — so the Android map sat in the card with
+          // square corners. `overflow: 'hidden'` on an ordinary View clips it on both.
+          <View style={mapFrame}>
+            <LiveTrackMapView
+              update={live}
+              followMode="followBearing"
+              style={{ flex: 1 }}
+            />
+          </View>
         ) : state.kind === 'loading' || state.kind === 'idle' ? (
           <View
             style={{
@@ -208,10 +296,14 @@ export function TrackScreen() {
             message={state.message}
           />
         ) : plot && plot.track.encodedPolyline.length > 0 ? (
-          <TrackMapView
-            track={plot.track}
-            style={{ height: mapHeight, borderRadius: 8 }}
-          />
+          <View style={mapFrame}>
+            <TrackMapView
+              track={plot.track}
+              options={MAP_OPTIONS}
+              onArrowZoom={handleArrowZoom}
+              style={{ flex: 1 }}
+            />
+          </View>
         ) : (
           <ContentUnavailable
             glyph="🗺"

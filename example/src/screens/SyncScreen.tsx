@@ -1,23 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Text, View } from 'react-native';
-import {
-  TrackerSync,
-  type SyncConfig,
-} from '@fieldtrack360/react-native-tracker';
+import { StyleSheet, Text, View } from 'react-native';
+import { TrackerSync } from '@fieldtrack360/react-native-tracker';
 import { font, spacing, useTheme } from '../theme';
 import {
   ActionButton,
   ActionRow,
+  CollapseChevron,
   DiagnosticCard,
   ExplanationBox,
   FactRow,
   LabelledField,
   Note,
+  Pill,
   Screen,
   ToggleRow,
 } from '../ui';
 import { useTracking } from '../state/tracking';
-import DeviceInfo from 'react-native-device-info'
 import { createMMKV } from 'react-native-mmkv';
 
 // The upload instrument — the port of SampleApp/Modules/Sync/SyncView.swift and its view model.
@@ -40,7 +38,9 @@ const FEED_LIMIT = 60;
 const storage = createMMKV();
 const ENDPOINT_KEY = 'sync.endpoint';
 
-export function SyncScreen({ onBack }: { onBack: () => void }) {
+// Back is the root header's chevron, not this screen's own control — the header already swaps its
+// logo for one while this is up, and a second Home button inside the first card was two ways out.
+export function SyncScreen() {
   const theme = useTheme();
   const tracking = useTracking();
 
@@ -68,12 +68,19 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
   const [bearerToken, setBearerToken] = useState('');
   const [autoSync, setAutoSync] = useState(true);
 
-  const [configuredEndpoint, setConfiguredEndpoint] = useState<
-    string | undefined
-  >(undefined);
+  /// In the provider, not here: this screen unmounts every time the tester leaves the tab, Home
+  /// reads the same flag to say whether sync is wired, and a restart re-applies the configuration
+  /// before this screen is ever opened.
+  const configuredEndpoint = tracking.configuredSyncEndpoint;
+  const clearConfiguration = tracking.clearSyncConfiguration;
   const [pending, setPending] = useState<number | undefined>(undefined);
   const [lastResult, setLastResult] = useState<string | undefined>(undefined);
   const [feed, setFeed] = useState<string[]>([]);
+
+  /// Collapsed by default, like every other diagnostic on Home — a host only opens these once the
+  /// summary above (Status, Pending) says something needs a closer look.
+  const [isQueueExpanded, setIsQueueExpanded] = useState(false);
+  const [isFeedExpanded, setIsFeedExpanded] = useState(false);
 
   const record = useCallback((kind: string, detail: string) => {
     const stamp = new Date().toLocaleTimeString();
@@ -133,65 +140,34 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
         case 'authExpired':
           // Terminal, and the only event a host must act on: refresh belongs to the auth stack.
           record('AUTH', '401 — configuration torn down');
-          setConfiguredEndpoint(undefined);
+          clearConfiguration();
           break;
         default:
           record('EVENT', 'unrecognised');
       }
     });
     return unsubscribe;
-  }, [record, refreshPending]);
+  }, [clearConfiguration, record, refreshPending]);
 
-  const configure = async (url: string = endpoint) => {
-    const config: SyncConfig = {
-      url,
-      method: 'POST',
+  /// The applying itself is the provider's — it also owns the session re-push and the restore on
+  /// launch, both of which have to happen with this screen closed. This is only the button.
+  const configure = async () => {
+    const error = await tracking.configureSync({
+      url: endpoint,
+      bearerToken: bearerToken !== '' ? bearerToken : undefined,
       autoSync,
-      batchSize: 100,
-      extraParams: {
-        device_id: `${await DeviceInfo.getDeviceName()}-${await DeviceInfo.getUniqueId()}`,
-        ...(liveSessionId ? { session_id: liveSessionId } : {}),
-      },
-      ...(bearerToken !== ''
-        ? { headers: { Authorization: `Bearer ${bearerToken}` } }
-        : {}),
-      // The two network gates are NOT unified: "any connectivity" and "unmetered only" are
-      // different policies, so each sits in its own platform namespace and neither is collapsed.
-      ios: { requiresNetworkConnectivity: true },
-      android: { requiresUnmeteredNetwork: false },
-    };
-    try {
-      await TrackerSync.configure(config);
-      setConfiguredEndpoint(url);
-      setLastResult(`configured for ${url}`);
-      record(
-        'CONFIG',
-        `${url}${liveSessionId ? ` session ${liveSessionId.slice(0, 8)}` : ''}`
-      );
-      tracking.note(
-        'SYNC',
-        `configured endpoint=${url} autoSync=${autoSync} session=${liveSessionId ?? 'none'}`
-      );
-      await refreshPending();
-    } catch (error) {
-      // A bridge fault, not a domain failure: an unparseable URL rejects rather than resolving
-      // ok:false.
-      setLastResult(`not configured: ${String(error)}`);
-    }
-  };
-
-  // extraParams cannot be patched — the bridge takes a whole SyncConfig — so a new session means
-  // re-applying the configuration this screen last applied, with the in-force endpoint rather than
-  // whatever is currently typed. Skipped until the host has pressed Configure once: pushing a URL
-  // nobody confirmed would be this screen picking an endpoint on its own.
-  useEffect(() => {
-    if (configuredEndpoint === undefined) {
+    });
+    if (error) {
+      setLastResult(`not configured: ${error}`);
       return;
     }
-    void configure(configuredEndpoint);
-    // The session id is the only trigger that belongs here; `configure` is rebuilt every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveSessionId]);
+    setLastResult(`configured for ${endpoint}`);
+    record(
+      'CONFIG',
+      `${endpoint}${liveSessionId ? ` session ${liveSessionId.slice(0, 8)}` : ''}`
+    );
+    await refreshPending();
+  };
 
   /// Drains now and reports what happened. `syncNow()` awaits the outcome, unlike `requestSync()`,
   /// which is why this button can say what the server did rather than only that it was asked.
@@ -210,7 +186,7 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
           break;
         case 'authExpired':
           setLastResult('401 — uploader torn down');
-          setConfiguredEndpoint(undefined);
+          clearConfiguration();
           break;
         // Android only, and deliberately NOT the same as authExpired: the rows are all still
         // queued and tracking is still running — only the retry loop has stopped. Configure again
@@ -219,7 +195,7 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
           setLastResult(
             '403 — uploads halted, queue kept; re-configure to resume'
           );
-          setConfiguredEndpoint(undefined);
+          clearConfiguration();
           break;
         default:
           setLastResult('unrecognised result');
@@ -245,12 +221,8 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
 
   return (
     <Screen>
-      <ActionRow>
-        <ActionButton title="← Home" onPress={onBack} />
-      </ActionRow>
-
       {/* MARK: - Endpoint */}
-      <DiagnosticCard title="Endpoint" glyph="🔗">
+      <DiagnosticCard title="Server Endpoint Configuration" glyph="🔗">
         <LabelledField
           name="URL"
           value={endpoint}
@@ -258,6 +230,8 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
           placeholder="https://your.server/track"
           keyboardType="url"
           autoCapitalize="none"
+          labelStyle={styles.fieldLabel}
+          inputStyle={styles.fieldInput}
         />
         <LabelledField
           name="Bearer token (optional)"
@@ -265,11 +239,15 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
           onChange={setBearerToken}
           placeholder="token"
           autoCapitalize="none"
+          secureTextEntry
+          labelStyle={styles.fieldLabel}
+          inputStyle={styles.fieldInput}
         />
         <ToggleRow
           label="Auto-sync on every accepted point"
           isOn={autoSync}
           onToggle={() => setAutoSync((value) => !value)}
+          labelStyle={styles.toggleLabel}
         />
 
         <ActionButton
@@ -284,6 +262,8 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
           name="Status"
           value={configuredEndpoint ? 'CONFIGURED' : 'NOT CONFIGURED'}
           tint={configuredEndpoint ? theme.status.good : theme.idle}
+          stackedFont
+          spaceBetween
         />
         {/* Where it is ACTUALLY sending, which is not necessarily what is typed above: the two
             diverge the moment the field is edited without pressing Configure. */}
@@ -296,93 +276,178 @@ export function SyncScreen({ onBack }: { onBack: () => void }) {
           name="session_id"
           value={liveSessionId ?? 'no session yet'}
           tint={liveSessionId ? theme.status.good : theme.idle}
+          stackedFont
+          spaceBetween
         />
 
-        <Note>
+        <Note style={styles.sectionNote}>
           The uploader is given the SDK's own queue rather than reaching for it,
           which is what keeps the core free of any knowledge that an uploader
           exists. Points are queued whether or not this is configured, so
           nothing is lost by wiring it later.
         </Note>
-        <Note>
+        <Note style={styles.sectionNote}>
           This badge is what THIS screen configured, not a readback: the bridge
           exposes no isConfigured. An authExpired event clears it, because that
           is the one teardown the host does not cause.
         </Note>
       </DiagnosticCard>
 
-      {/* MARK: - Queue */}
-      <DiagnosticCard title="Queue" glyph="📥">
-        <FactRow name="Pending" value={pending ?? '—'} />
+      {/* MARK: - Queue
+          Collapsed by default like every other diagnostic — Pending stays visible in the header so
+          a host can tell at a glance whether anything needs syncing, without opening the card. */}
+      <DiagnosticCard
+        title="Queue"
+        glyph="📥"
+        onHeaderPress={() => setIsQueueExpanded((expanded) => !expanded)}
+        right={<CollapseChevron expanded={isQueueExpanded} theme={theme} />}
+      >
+        {isQueueExpanded ? (
+          <>
+            <FactRow
+              name="Pending"
+              value={pending ?? '—'}
+              tint={pending && pending > 0 ? theme.status.good : theme.idle}
+              stackedFont
+              spaceBetween
+            />
 
-        <ActionRow>
-          <ActionButton
-            title="Sync now"
-            glyph="⬆"
-            onPress={() => void syncNow()}
-          />
-          {/* Both triggers, deliberately: they differ in whether the caller learns the outcome, and
-              a host choosing between them should see that difference. */}
-          <ActionButton
-            title="Request"
-            glyph="✈"
-            onPress={() => void requestSync()}
-          />
-          <ActionButton
-            title="Pending"
-            glyph="↻"
-            onPress={() => void refreshPending()}
-          />
-        </ActionRow>
+            <ActionRow>
+              <ActionButton
+                title="Sync now"
+                glyph="⬆"
+                onPress={() => void syncNow()}
+              />
+              {/* Both triggers, deliberately: they differ in whether the caller learns the outcome,
+                  and a host choosing between them should see that difference. */}
+              <ActionButton
+                title="Request"
+                glyph="✈"
+                onPress={() => void requestSync()}
+              />
+              <ActionButton
+                title="Pending"
+                glyph="↻"
+                onPress={() => void refreshPending()}
+              />
+            </ActionRow>
 
-        {lastResult ? (
-          <ExplanationBox text={lastResult} tint={theme.idle} />
+            {lastResult ? (
+              <ExplanationBox text={lastResult} tint={theme.idle} />
+            ) : null}
+
+            <Note style={styles.sectionNote}>
+              syncNow() awaits the outcome and reports it; requestSync() returns
+              immediately and coalesces repeated calls. Rows are only marked
+              uploaded on a confirmed success, so a dropped response costs a
+              duplicate rather than a point.
+            </Note>
+            <Note style={styles.sectionNote}>
+              Call requestSync() after accepted points even with autoSync on —
+              Android does not auto-enqueue the worker on accepted-point events.
+            </Note>
+          </>
         ) : null}
-
-        <Note>
-          syncNow() awaits the outcome and reports it; requestSync() returns
-          immediately and coalesces repeated calls. Rows are only marked
-          uploaded on a confirmed success, so a dropped response costs a
-          duplicate rather than a point.
-        </Note>
-        <Note>
-          Call requestSync() after accepted points even with autoSync on —
-          Android does not auto-enqueue the worker on accepted-point events.
-        </Note>
       </DiagnosticCard>
 
       {/* MARK: - Feed */}
-      <DiagnosticCard title="Feed" glyph="📈">
-        <Note>
-          One HTTP line per exchange, before the outcome — a queue larger than
-          the batch size reports every round trip. "no response" means the
-          request never reached a server: offline, DNS, TLS. iOS only: Android
-          has no sync event stream, so this card stays empty there and that is
-          the SDK working as designed.
-        </Note>
-
-        {feed.length === 0 ? (
-          <Note>Nothing yet.</Note>
-        ) : (
-          <View>
-            {feed.map((line, index) => (
-              <Text
-                key={`${index}-${line}`}
-                style={{
-                  color: theme.label,
-                  fontFamily: font.mono,
-                  fontSize: 11,
-                  lineHeight: 16,
-                }}
-              >
-                {line}
-              </Text>
-            ))}
+      <DiagnosticCard
+        title="Feed"
+        glyph="📈"
+        onHeaderPress={() => setIsFeedExpanded((expanded) => !expanded)}
+        right={
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {feed.length > 0 ? (
+              <Pill text={String(feed.length)} tint={theme.idle} />
+            ) : null}
+            <CollapseChevron expanded={isFeedExpanded} theme={theme} />
           </View>
-        )}
+        }
+      >
+        {isFeedExpanded ? (
+          <>
+            <Note style={styles.sectionNote}>
+              One HTTP line per exchange, before the outcome — a queue larger
+              than the batch size reports every round trip. "no response" means
+              the request never reached a server: offline, DNS, TLS. iOS only:
+              Android has no sync event stream, so this card stays empty there
+              and that is the SDK working as designed.
+            </Note>
+
+            {feed.length === 0 ? (
+              <Note style={styles.sectionNote}>Nothing yet.</Note>
+            ) : (
+              <View style={{ gap: 6 }}>
+                {feed.map((line, index) => {
+                  // `${stamp}  ${kind}  ${detail}`, split back apart so the timestamp reads dim
+                  // and the event kind reads as the thing a scanning eye should land on first.
+                  const [stamp, kind, ...rest] = line.split('  ');
+                  return (
+                    <Text key={`${index}-${line}`} style={styles.feedLine}>
+                      <Text
+                        style={[
+                          styles.feedStamp,
+                          { color: theme.secondaryLabel },
+                        ]}
+                      >
+                        {stamp}
+                      </Text>
+                      <Text style={[styles.feedKind, { color: theme.accent }]}>
+                        {'  '}
+                        {kind}
+                      </Text>
+                      <Text style={{ color: theme.label }}>
+                        {'  '}
+                        {rest.join('  ')}
+                      </Text>
+                    </Text>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        ) : null}
       </DiagnosticCard>
 
       <View style={{ height: spacing.section }} />
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  // Slightly roomier than the shared Note default — these two cards carry the densest prose on
+  // the screen, and the tighter default line-height read cramped next to the monospaced feed.
+  sectionNote: {
+    fontSize: 13,
+    lineHeight: 19,
+    letterSpacing: 0.1,
+  },
+  feedLine: {
+    fontFamily: font.mono,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  feedStamp: {
+    fontSize: 11,
+  },
+  feedKind: {
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  // Uppercase + tracked, matching the treatment FactRow's stackedFont uses elsewhere — a field
+  // label reads as a category heading, not a sentence.
+  fieldLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  fieldInput: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  toggleLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+});

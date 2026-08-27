@@ -6,3 +6,8 @@
 declare module '@env' {
   export const TRACKER_LICENSE: string | undefined;
 }
+
+declare module '*.png' {
+  const source: number;
+  export default source;
+}
