@@ -1908,7 +1908,7 @@ PODS:
     - Yoga
   - SocketRocket (0.7.1):
     - ReactNativeDependencies
-  - Tracker (1.0.4):
+  - Tracker (1.0.5):
     - hermes-engine
     - RCTRequired
     - RCTTypeSafety
@@ -2305,7 +2305,7 @@ SPEC CHECKSUMS:
   RNFS: 89de7d7f4c0f6bafa05343c578f61118c8282ed8
   RNShare: cca9107c0dcfdd92fa228116226d1189663265b4
   SocketRocket: 37aec555668fb852ec12e3c0de59a86ca58f0871
-  Tracker: e3a862299ca2e6d024431577b4b223c959481727
+  Tracker: 34601b58502c0b925ebe76ee7e87bebb4e855e67
   Yoga: bae35227863013a26b8b43ac24a64c72b7e8baed
 
 PODFILE CHECKSUM: 4f9feb14dbe1477af4c623e5bf5f790ef7d2dd81
