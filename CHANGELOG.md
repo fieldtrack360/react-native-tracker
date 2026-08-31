@@ -9,7 +9,37 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
-## [Unreleased]
+## [1.0.8] — 2026-08-31
+
+Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.8**
+
+A native-pin release: no TypeScript, wire or mapper change, so nothing in an app that builds
+against `1.0.7` needs editing. What moves is the Android SDK underneath it.
+
+### Changed
+
+- Native SDK pins: Android `1.0.7-alpha5` → `1.0.8`. iOS stays at `1.0.5` (`e9000e4`).
+- **The offline drain actually drains.** The reconnect path enqueues with `REPLACE`; `KEEP` did
+  nothing while a request already sat in backoff — which is what `ENQUEUED` looks like — so a
+  validated reconnection was noticed and then discarded, and the backlog waited out a backoff
+  already grown to minutes on a flaky link.
+- **Non-failures stop consuming retry attempts.** `already draining`, `sync not configured` and
+  `no transport` each grew the linear backoff for every genuine failure after them; all three now
+  report success.
+- **A reconnection is deferred rather than dropped.** A rising edge suppressed by the 15 s cooldown
+  is re-checked at the end of it, so a network that flaps and then settles inside the window still
+  produces exactly one drain instead of none.
+- **The upload queue is FIFO again across a reboot.** It ordered on `elapsedRealtimeNanos`, which
+  restarts at zero on reboot, so a backlog spanning one sorted its whole post-reboot tail to the
+  front — and that query has no session filter, so it shuffled every unsent session at once. It
+  now orders by insertion.
+- **`TrackerState.isTracking` / `.isCapturing` / `.currentSessionId` survive a process death.**
+  Capture resumed from inside the service set none of them, so a host read `isTracking: false`
+  while the SDK was recording. The foreground service also renews its wake lock.
+- The Android SDK adds `SyncConfig.includePointSessionId` (a per-row `session_id` on uploaded
+  points). **Not surfaced by this plugin** — `sync.android` is unchanged.
+
+## [1.0.7] — 2026-08-31
 
 Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.7-alpha5**
 
@@ -262,7 +292,8 @@ Pinned native SDKs: iOS **1.0.0** · Android **1.0.0**
   activity and provider state, the upload (sync) engine, two native map components
   (`TrackMapView`, `LiveTrackMapView`), permissions, diagnostics, and an Expo config plugin.
 
-[Unreleased]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.5...HEAD
+[1.0.8]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.7...v1.0.8
+[1.0.7]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.5...v1.0.6
 [1.0.5]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.3...v1.0.4

@@ -864,7 +864,7 @@ rung 5 of the [permission ladder](#runtime-requests--use-trackerpermissions-not-
 A refusal does not stop capture, but a session with no visible notification is a stronger candidate
 for the OS to kill.
 
-Requires Android SDK **1.0.7-alpha5** — the version pinned by this release. Earlier SDKs accepted
+Requires Android SDK **1.0.7-alpha5** or newer — this release pins **1.0.8**. Earlier SDKs accepted
 the five wording keys and ignored them, always posting the defaults; the three sync-status keys
 land in `1.0.7-alpha5` itself.
 
@@ -1127,7 +1127,7 @@ unset the body is byte-identical to a build without it, so an existing backend n
 - **Android caps nesting at 10 levels** and rejects an unserializable value at `configure()` time,
   naming the key, rather than failing hours later mid-drain.
 
-Requires iOS SDK **1.0.5** / Android SDK **1.0.7-alpha5** — the pinned versions of this release.
+Requires iOS SDK **1.0.5** / Android SDK **1.0.8** — the pinned versions of this release.
 
 `forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
 `authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
