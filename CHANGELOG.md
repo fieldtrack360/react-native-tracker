@@ -9,6 +9,32 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [Unreleased]
+
+Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.7-alpha5**
+
+### Added
+
+- **`android.showSyncStatusInNotification`, `android.syncNotificationSubText`,
+  `android.syncNotificationText`** — the foreground-service notification can carry a live
+  upload-queue readout: `{pending}` rows not yet uploaded and `{age}` since the last confirmed
+  upload, refreshed on the `watchdogIntervalMs` tick. Off by default and meant to stay off in a
+  shipping app; it exists for the offline-drain test that cannot be run from inside the app,
+  because launching the app is itself a drain trigger. `notificationTitle` is never replaced —
+  the status occupies the subtitle and description only. A blank `syncNotificationSubText`, or a
+  blank `syncNotificationText` while the flag is on, fails `ready()` with `invalidConfig`.
+- **`TrackerState.android.motionQuality` / `.effectiveTrackingMode`** — Android only, absent on
+  iOS. `effectiveTrackingMode` is the mode actually in force, which is not always the configured
+  one: on `motionQuality: 'poor'` the SDK rewrites the mode to `'continuous'`, and nothing else
+  exposed the resolved config. The `motionDetectionDegraded` event announced the same thing but is
+  emitted inside `ready()` on a replay-free stream, so a host collecting afterwards never saw it.
+
+### Changed
+
+- Native SDK pins: Android `1.0.7-alpha4` → `1.0.7-alpha5`. iOS stays at `1.0.5` (`e9000e4`).
+  The Android bump also carries offline-sync and service-wakeup fixes and a motion-hardware
+  fallback, none of which change the plugin's wire surface.
+
 ## [1.0.6] — 2026-08-27
 
 Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.7-alpha4**

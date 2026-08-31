@@ -18,6 +18,9 @@ export type TrackerStateWire = {
   isTracking: boolean;
   motionState: string;
   currentSessionId?: string;
+  // Android-only half, a concrete optional nested object (not a union) so it stays
+  // codegen-representable. Absent on iOS — its TrackerState carries neither field.
+  android?: { motionQuality: string; effectiveTrackingMode: string };
 };
 
 // TrackSession wire shape. The android? half is a concrete optional nested object (not a

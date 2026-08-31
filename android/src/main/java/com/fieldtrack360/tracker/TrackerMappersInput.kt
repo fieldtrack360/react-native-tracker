@@ -401,6 +401,20 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
     if (block.has("notificationSmallIconResName")) {
       service = service.copy(notificationSmallIconResName = block.optString("notificationSmallIconResName"))
     }
+    // Sync-status diagnostic (Android SDK 1.0.7-alpha5). Three keys, all absent by default: the
+    // SDK's own defaults are off / no subtitle / "unsynced {pending} · last upload {age}", and an
+    // absent key must leave each of them alone. `syncNotificationSubText` is nullable natively —
+    // null means "no subtitle", so it is only written when the host actually sent the key, never
+    // synthesised from an empty string.
+    if (block.has("showSyncStatusInNotification")) {
+      service = service.copy(showSyncStatusInNotification = block.optBoolean("showSyncStatusInNotification"))
+    }
+    if (block.has("syncNotificationSubText")) {
+      service = service.copy(syncNotificationSubText = block.optString("syncNotificationSubText"))
+    }
+    if (block.has("syncNotificationText")) {
+      service = service.copy(syncNotificationText = block.optString("syncNotificationText"))
+    }
   }
   config = config.copy(service = service)
 

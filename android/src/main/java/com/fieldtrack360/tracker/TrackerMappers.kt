@@ -101,6 +101,14 @@ object TrackerMappers {
     putString("motionState", screamingSnakeToLowerCamel(state.motionState.name))
     putMap("providerState", providerStateMap(state.providerState))
     state.currentSessionId?.let { putString("currentSessionId", it) }
+    // Android-only half (SDK 1.0.7-alpha5): iOS `TrackerState` carries neither field, so it is
+    // namespaced rather than flat. Both are SCREAMING_SNAKE natively (MOTION_ONLY) and normalized
+    // to the wire's lower camel. effectiveTrackingMode is the RESOLVED mode, not the configured
+    // one — on motionQuality POOR the SDK rewrites it to CONTINUOUS, and nothing else reports that.
+    putMap("android", Arguments.createMap().apply {
+      putString("motionQuality", screamingSnakeToLowerCamel(state.motionQuality.name))
+      putString("effectiveTrackingMode", screamingSnakeToLowerCamel(state.effectiveTrackingMode.name))
+    })
   }
 
   // ---- ProviderState (union) ----

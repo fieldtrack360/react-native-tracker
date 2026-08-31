@@ -57,7 +57,7 @@ export type TrackerConfig = {
   /** Shared. Holds a fix the heuristic gate rejected for one more fix and restores it as a corner
    *  vertex if the path bent across it — a junction's apex offers only half the turn to a
    *  backwards-looking comparison, so it used to be dropped and the drawn line ran straight across
-   *  the corner. Default **true** on both (iOS SDK 1.0.5, Android 1.0.7-alpha4); `false` with
+   *  the corner. Default **true** on both (iOS SDK 1.0.5, Android 1.0.7-alpha5); `false` with
    *  `bearingChangeCaptureDeg: 40` restores the pre-1.0.5 drawing exactly. Only the heuristic
    *  gate's rejections are reconsidered — impossible speed, poor accuracy and the sigma outlier
    *  test are untouched. */
@@ -200,6 +200,48 @@ export type TrackerConfig = {
     notificationChannelId?: string;
     notificationChannelName?: string;
     notificationSmallIconResName?: string;
+
+    /** Diagnostic — replaces the notification's description with a live upload-queue readout while
+     *  tracking (`unsynced 42 · last upload 21m ago`) and puts `syncNotificationSubText` beside the
+     *  title. Android-only; iOS has no foreground-service notification to write on.
+     *
+     *  **Defaults false and should stay false in a shipping app.** The ongoing notification is the
+     *  one piece of SDK surface a real user reads, and "unsynced 42" means nothing to them while
+     *  meaning something alarming.
+     *
+     *  What it is for is the one test that cannot be run from inside the app: kill the host, take
+     *  the device offline, wait, restore connectivity, and confirm the queue drains — without
+     *  launching anything, because launching is itself a drain trigger and would invalidate the
+     *  test. It needs no debugger, no adb and no server-side check.
+     *
+     *  Refreshed on the `watchdogIntervalMs` tick, so the number lags reality by up to that long: a
+     *  count that has not moved for one tick has not necessarily stalled.
+     *
+     *  Requires Android SDK 1.0.7-alpha5 — earlier SDKs ignore all three keys. */
+    showSyncStatusInNotification?: boolean;
+    /** The subtitle shown beside `notificationTitle` while the upload status is on screen; omit for
+     *  no subtitle.
+     *
+     *  **It never replaces `notificationTitle`.** Title, subtitle and description are three slots:
+     *  your app keeps the first in both states, this owns the second and `syncNotificationText` the
+     *  third, so a user glancing at the shade still sees which app holds the foreground service.
+     *
+     *  A blank string fails `ready()` with `invalidConfig` — omit the key instead. Ignored unless
+     *  `showSyncStatusInNotification` is on. */
+    syncNotificationSubText?: string;
+    /** The upload-status description, with two placeholders substituted at post time: `{pending}`
+     *  (rows queued and not yet uploaded, e.g. `42`) and `{age}` (how long since the last confirmed
+     *  upload, e.g. `21m ago`, or `never`).
+     *
+     *  Both tokens are optional and may appear in any order, and an unknown `{token}` is left as
+     *  itself rather than blanked, so a typo shows up on the notification instead of silently
+     *  vanishing. Including neither is allowed and gives a static string — a reasonable choice for
+     *  an app that wants to say "syncing" without putting a number in front of a user.
+     *
+     *  Defaults to `'unsynced {pending} · last upload {age}'`. Blank fails `ready()` with
+     *  `invalidConfig` when `showSyncStatusInNotification` is on; ignored entirely when it is
+     *  off. */
+    syncNotificationText?: string;
 
     /** Device integrity. Android-only — iOS ships no counterpart, so this block has no `ios`
      *  twin and is namespaced rather than flat.

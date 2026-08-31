@@ -8,6 +8,7 @@ import type {
   MotionState,
   PermissionTier,
   PowerSource,
+  TrackingMode,
 } from './enums';
 
 export type TrackerState = {
@@ -17,6 +18,31 @@ export type TrackerState = {
   providerState: ProviderState;
   /** null/absent when no session is open. */
   currentSessionId?: string;
+  /** Android-only, and absent on iOS — its `TrackerState` carries neither field, so there is no
+   *  shared half to flatten. Requires Android SDK 1.0.7-alpha5; earlier SDKs omit this too. */
+  android?: {
+    /** What the SDK concluded about this device's motion hardware at `ready()`.
+     *
+     *  Carried here rather than left to the `motionDetectionDegraded` event alone, because that
+     *  event fires inside `ready()` on a replay-free stream: a host that follows the documented
+     *  order (`ready()` at startup, `onStateChange` after) never sees it. This is always readable.
+     *
+     *  `'poor'` means motion gating is not trustworthy on this hardware and the configured
+     *  `trackingMode` was overridden — see `effectiveTrackingMode`. Not purely a hardware verdict:
+     *  a denied `ACTIVITY_RECOGNITION` reaches `'poor'` on a device with no significant-motion or
+     *  step sensor, so it can change when a grant does. `getSensors()` is still how you ask WHICH
+     *  sensors are missing; this is the one-value answer to whether it matters. */
+    motionQuality: MotionQuality;
+    /** The tracking mode actually in force, which is not always the one you asked for: on
+     *  `motionQuality: 'poor'` the SDK rewrites it to `'continuous'`, because a motion-gated mode
+     *  on hardware that cannot detect motion produces gaps the user blames on the SDK. Nothing
+     *  else exposes the resolved config.
+     *
+     *  Read it before attributing battery use to a mode — `'continuous'` keeps the location stream
+     *  registered while stationary and `'motionOnly'` does not, so the override costs materially
+     *  more power than the mode it replaced. */
+    effectiveTrackingMode: TrackingMode;
+  };
 };
 
 // Union. Shared fields flat; the platform-only halves are absent — not `false` — on the

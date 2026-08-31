@@ -444,7 +444,7 @@ const result = await Tracker.ready({
 });
 
 if (result.ok) {
-  const state: TrackerState = result.value;   // { isReady, isTracking, motionState, providerState, currentSessionId? }
+  const state: TrackerState = result.value;   // { isReady, isTracking, motionState, providerState, currentSessionId?, android? }
   console.log('ready', state.isReady);
 } else {
   console.warn('ready failed', result.code, result.message);  // never swallow this
@@ -828,13 +828,45 @@ Two more things worth knowing before you ship:
   and it is what keeps a notification the user did not ask for from behaving like one that wants
   attention.
 
+**The notification can also show the upload queue — for testing, not for shipping.**
+`showSyncStatusInNotification: true` replaces the description with a live readout and puts
+`syncNotificationSubText` beside your title:
+
+```ts
+await Tracker.ready({
+  license: TRACKER_LICENSE,
+  android: {
+    notificationTitle: 'Acme Field tracking your location',
+    showSyncStatusInNotification: true,
+    syncNotificationSubText: 'Offline test build',
+    syncNotificationText: 'unsynced {pending} · last upload {age}',
+  },
+});
+```
+
+`{pending}` is the number of rows queued and not yet uploaded; `{age}` is how long since the last
+confirmed upload (`21m ago`, or `never`). Both are optional and may appear in any order, and an
+unknown `{token}` is left as itself rather than blanked, so a typo shows on the notification instead
+of vanishing. `notificationTitle` is **never** replaced — title, subtitle and description are three
+slots, and the shade has to keep naming the app holding the foreground service.
+
+Leave it off in a shipping app: "unsynced 42" means nothing to a user and something alarming. It
+exists for the one test you cannot run from inside the app — kill the host, take the device offline,
+wait, restore connectivity, and confirm the queue drains without launching anything, because
+launching is itself a drain trigger and would invalidate the test. The line is refreshed on the
+`watchdogIntervalMs` tick, so a count that has not moved for one tick has not necessarily stalled.
+
+A blank `syncNotificationSubText` — or a blank `syncNotificationText` while the flag is on — fails
+`ready()` with `invalidConfig`; omit the key instead of sending an empty string.
+
 Ask for the notification permission on Android 13+ via `Tracker.android.requestNotification()` —
 rung 5 of the [permission ladder](#runtime-requests--use-trackerpermissions-not-permissionsandroid).
 A refusal does not stop capture, but a session with no visible notification is a stronger candidate
 for the OS to kill.
 
-Requires Android SDK **1.0.7-alpha4** — the version pinned by this release. Earlier SDKs accepted
-these five keys and ignored them, always posting the defaults.
+Requires Android SDK **1.0.7-alpha5** — the version pinned by this release. Earlier SDKs accepted
+the five wording keys and ignored them, always posting the defaults; the three sync-status keys
+land in `1.0.7-alpha5` itself.
 
 ---
 
@@ -1095,7 +1127,7 @@ unset the body is byte-identical to a build without it, so an existing backend n
 - **Android caps nesting at 10 levels** and rejects an unserializable value at `configure()` time,
   naming the key, rather than failing hours later mid-drain.
 
-Requires iOS SDK **1.0.5** / Android SDK **1.0.7-alpha4** — the pinned versions of this release.
+Requires iOS SDK **1.0.5** / Android SDK **1.0.7-alpha5** — the pinned versions of this release.
 
 `forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
 `authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
@@ -1309,6 +1341,11 @@ type TrackerResult<T> = { ok: true; value: T } | { ok: false; code: ErrorCode; m
 type TrackerState = {
   isReady: boolean; isTracking: boolean; motionState: MotionState;
   providerState: ProviderState; currentSessionId?: string;
+  /** Android only, absent on iOS. `effectiveTrackingMode` is the mode actually in force, which is
+   *  NOT always the one you configured: on `motionQuality: 'poor'` the SDK rewrites it to
+   *  `'continuous'`, and nothing else reports that. Reading it costs less than blaming the battery
+   *  on a mode that is not running. */
+  android?: { motionQuality: MotionQuality; effectiveTrackingMode: TrackingMode };
 };
 
 type ProviderState = {
@@ -1425,7 +1462,7 @@ namespaces. Every field is optional — omit it to keep the SDK default.
 | Persistence | `maxDaysToPersist`, `persistRawFixes`, `rawFixRingCapacity`, `persistRawPoints`, `rawPointRingCapacity`, `persistDecisions`, `decisionRetentionDays`, `decisionMaxRows` |
 | Service | `healthLoopMs`, `backstopIntervalMin`, `deadTrackerMovingMin`, `deadTrackerStationaryMin` |
 | `ios` | `backgroundLocationIndicator`, `stillConfidenceMin`, `useSignificantLocationChange`, `useStationaryFence`, `stationaryAccuracy`, `speedAdaptiveCadence`, `targetSpacingM`, `minIntervalMs`, `maxIntervalMs`, `significantMotionSteps`, `significantMotionAccelG`, `significantMotionAccelSustainMs`, `stationaryGeofenceId` (must carry the reserved `tracker-stationary` prefix), `stationaryGeofenceOnExitEvent` |
-| `android` | `providerType`, `fastestIntervalMs`, `maxUpdateDelayMs`, `maxFixAgeMs`, `navigationFastestIntervalMs`, `distanceFilterM`, `maxRecords`, `stepBatchLatencyMs`, `stationaryGeofenceId`, `stationaryGeofenceOnEnterEvent`, `stationaryGeofenceOnExitEvent`, `foregroundService`, `stopOnTerminate`, `enableHeadless`, `startOnBoot`, `watchdogIntervalMs`, `watchdogThrottleMs`, `wakeLockMs`, `notificationTitle`, `notificationText`, `notificationChannelId`, `notificationChannelName`, `notificationSmallIconResName` |
+| `android` | `providerType`, `fastestIntervalMs`, `maxUpdateDelayMs`, `maxFixAgeMs`, `navigationFastestIntervalMs`, `distanceFilterM`, `maxRecords`, `stepBatchLatencyMs`, `stationaryGeofenceId`, `stationaryGeofenceOnEnterEvent`, `stationaryGeofenceOnExitEvent`, `foregroundService`, `stopOnTerminate`, `enableHeadless`, `startOnBoot`, `watchdogIntervalMs`, `watchdogThrottleMs`, `wakeLockMs`, `notificationTitle`, `notificationText`, `notificationChannelId`, `notificationChannelName`, `notificationSmallIconResName`, `showSyncStatusInNotification`, `syncNotificationSubText`, `syncNotificationText` |
 
 Per-field docblocks live in `src/types/config.ts`.
 
