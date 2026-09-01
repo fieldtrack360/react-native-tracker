@@ -9,6 +9,40 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.9] — 2026-09-01
+
+Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.8-alpha01**
+
+A native-pin release: no TypeScript, wire or mapper change, so nothing in an app that builds
+against `1.0.8` needs editing. What moves is the Android SDK underneath it.
+
+### Changed
+
+- Native SDK pins: Android `1.0.8` → `1.0.8-alpha01`. iOS stays at `1.0.5` (`e9000e4`).
+- **A parked phone stops storing points.** Two independent holes in the Android net-displacement
+  departure ladder let a device on a desk log a track:
+  - One centroid hop could latch `movingMode` on net displacement alone, and that switches the
+    whole ladder off until settle detection unwinds it — so a 160 m Wi-Fi hop bought a licence
+    for every hop after it, stored as `Vehicular`. The shortcut now also needs the GNSS chip to
+    report some motion. A speed bar could not have caught this: the delta runs from the last
+    *stored* point, so 160 m across 60 s computes as an unremarkable 2.6 m/s.
+  - The departure tally survived the drift back to the anchor, so two hops minutes apart
+    satisfied a ladder written to require two *consecutive* advancing fixes. A rejected fix back
+    inside the origin radius now clears an unlatched tally; a real pause at a crossing keeps its
+    high-water mark.
+  - Measured: a 20-fix desk replay went from 11 stored points to 1 (the session's unconditional
+    initial fix).
+- **`FixDecision.motionState` is real.** It had no writer in the Android SDK and was stamped
+  `STOPPED` onto every decision and raw-point row, so the first column a drift investigation
+  reaches for read the same on a motorway as on a desk. It stays a log field — no gate reads it.
+- The Android SDK adds `MotionConfig.suppressWhileStationary` and `MotionConfig.stillnessEscapeMin`
+  — an accelerometer veto that drops points only stationary drift explains, off by default.
+  **Not surfaced by this plugin**; the `motion` config block is unchanged. The existing
+  `useAccelerometerVeto` key is a different, pre-existing switch and is untouched.
+- The Android SDK now documents `stopOnStationary` and `disableStopDetection` as declared but
+  never read — nothing in the SDK consumes either. This plugin still accepts both keys and still
+  maps them; they have no effect on Android and did not before this release either.
+
 ## [1.0.8] — 2026-08-31
 
 Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.8**
