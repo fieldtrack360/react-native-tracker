@@ -9,6 +9,40 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.10] — 2026-09-03
+
+Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.9**
+
+A native-pin release: no TypeScript, wire or mapper change, so nothing in an app that builds
+against `1.0.9` needs editing. What moves is the Android SDK underneath it.
+
+### Changed
+
+- Native SDK pins: Android `1.0.8-alpha01` → `1.0.9`. iOS stays at `1.0.5` (`e9000e4`).
+- **An Android build no longer crashes on its first cookie-bearing request.** `fieldtrack-core`
+  links OkHttp 5 for the licence check, and OkHttp 5 deleted the internal class
+  `okhttp3.internal.Util`. Gradle's conflict resolution raises the `okhttp` module and nothing
+  else, so the `okhttp-urlconnection` 4.x that React Native brings for its cookie jar stayed
+  where it was — and that version's `JavaNetCookieJar` calls the deleted class, taking the app
+  down on a stack that names no FieldTrack code:
+
+  ```
+  java.lang.NoClassDefFoundError: Failed resolution of: Lokhttp3/internal/Util;
+      at okhttp3.JavaNetCookieJar.decodeHeaderAsJavaNetCookies(JavaNetCookieJar.kt:81)
+      at com.facebook.react.modules.network.ReactCookieJarContainer.loadForRequest
+  ```
+
+  Android SDK `1.0.9` publishes a dependency *constraint* — not a dependency — that pulls
+  `okhttp-urlconnection` up to the same version as the core jar. It adds nothing to the AAR and
+  is inert in a host that never had that artifact. The version is `required`, not `strictly`: a
+  host may move the whole OkHttp family past the pin, only never split it. **A host whose own
+  build forces OkHttp versions — React Native's Gradle plugin can — still has to align the two
+  artifacts on its own side.** This plugin's `okhttp:5.1.0` declaration in `android/build.gradle`
+  is unchanged.
+- Nothing else moves. The rest of the Android SDK's diff over `1.0.8-alpha01` is documentation
+  and R8 consumer-rule comments; the desk-drift and `motionState` fixes listed under
+  [1.0.9](#109--2026-09-01) shipped in `1.0.8-alpha01` and are already in the previous release.
+
 ## [1.0.9] — 2026-09-01
 
 Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.8-alpha01**
@@ -326,6 +360,8 @@ Pinned native SDKs: iOS **1.0.0** · Android **1.0.0**
   activity and provider state, the upload (sync) engine, two native map components
   (`TrackMapView`, `LiveTrackMapView`), permissions, diagnostics, and an Expo config plugin.
 
+[1.0.10]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.9...v1.0.10
+[1.0.9]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.7...v1.0.8
 [1.0.7]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.6...v1.0.7
 [1.0.6]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.5...v1.0.6

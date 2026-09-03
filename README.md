@@ -864,7 +864,7 @@ rung 5 of the [permission ladder](#runtime-requests--use-trackerpermissions-not-
 A refusal does not stop capture, but a session with no visible notification is a stronger candidate
 for the OS to kill.
 
-Requires Android SDK **1.0.7-alpha5** or newer — this release pins **1.0.8-alpha01**. Earlier SDKs accepted
+Requires Android SDK **1.0.7-alpha5** or newer — this release pins **1.0.9**. Earlier SDKs accepted
 the five wording keys and ignored them, always posting the defaults; the three sync-status keys
 land in `1.0.7-alpha5` itself.
 
@@ -1127,7 +1127,7 @@ unset the body is byte-identical to a build without it, so an existing backend n
 - **Android caps nesting at 10 levels** and rejects an unserializable value at `configure()` time,
   naming the key, rather than failing hours later mid-drain.
 
-Requires iOS SDK **1.0.5** / Android SDK **1.0.8-alpha01** — the pinned versions of this release.
+Requires iOS SDK **1.0.5** / Android SDK **1.0.9** — the pinned versions of this release.
 
 `forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
 `authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
@@ -1670,6 +1670,7 @@ Fetch-script environment variables (all optional):
 | Notification text is right but the icon is the generic pin | The name in `notificationSmallIconResName` did not resolve. It is a filename in `android/app/src/main/res/drawable/` with no path and no extension; logcat names the one it could not find |
 | Session stops when the app is swiped away | `android.stopOnTerminate` — and check the notification permission: a suppressed foreground-service notification makes the OS more willing to kill the app |
 | `playServicesUnavailable` | The device has no usable Google Play services; the fused provider is unavailable |
+| `NoClassDefFoundError: Failed resolution of: Lokhttp3/internal/Util;` on the first cookie-bearing request | A split OkHttp family. The SDK links OkHttp 5, which deleted that internal class, and Gradle's conflict resolution raises the `okhttp` module alone — React Native's `okhttp-urlconnection` 4.x stays behind and its `JavaNetCookieJar` calls into the removed class. Fixed by the pinned Android SDK from `1.0.9`, which constrains `okhttp-urlconnection` to the core jar's version. If your own build forces OkHttp versions, align both artifacts yourself. A `-dontwarn okhttp3.**` keep rule is the wrong fix — it turns the build-time error into this crash |
 
 ### iOS
 
