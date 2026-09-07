@@ -9,6 +9,17 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.11] — 2026-09-04
+
+Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.9-alpha01**
+
+A native-pin release: no TypeScript, wire or mapper change, so nothing in an app that builds
+against `1.0.9` needs editing. What moves is the Android SDK pin underneath it.
+
+### Changed
+
+- Native SDK pins: Android `1.0.9` → `1.0.9-alpha01`. iOS stays at `1.0.5` (`e9000e4`).
+
 ## [1.0.10] — 2026-09-03
 
 Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.9**
@@ -360,6 +371,7 @@ Pinned native SDKs: iOS **1.0.0** · Android **1.0.0**
   activity and provider state, the upload (sync) engine, two native map components
   (`TrackMapView`, `LiveTrackMapView`), permissions, diagnostics, and an Expo config plugin.
 
+[1.0.11]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.8...v1.0.9
 [1.0.8]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.7...v1.0.8
