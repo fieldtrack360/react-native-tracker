@@ -36,8 +36,16 @@ export type TrackerConfig = {
   oneShotTimeoutMs?: number;
   mockLocationPolicy?: MockPolicy;
   /** Shared (both GeolocationConfigs carry it). The spec placed it iOS-only; the artefact says
-   *  shared. Neither platform's Builder exposes it, but it is on the data class, so the mapper
-   *  sets it directly. */
+   *  shared. On iOS the Builder does not expose it, so the mapper sets it on the data class
+   *  directly; Android SDK 1.0.10 added a `deliveryStalenessMs()` builder for it.
+   *
+   *  **Android 1.0.10 is also the pin where this started doing anything.** Before it the field
+   *  was declared and read by nothing at all. It is a DIAGNOSTIC and never a gate: delivery
+   *  lateness beyond this (ms, `0` disables) arrives as a throttled `diagnostic` event naming the
+   *  measured lag — nothing is dropped for being late, because OS batching makes late delivery
+   *  the normal case and the members of a batch are late by construction. What it answers is
+   *  "is the device not producing fixes, or producing them and handing them over a minute later",
+   *  which look identical in stored points. */
   deliveryStalenessMs?: number;
 
   // motion — shared, flat
@@ -170,6 +178,31 @@ export type TrackerConfig = {
     navigationFastestIntervalMs?: number;
     /** Android-only (spec omitted it entirely). */
     distanceFilterM?: number;
+
+    // ── SDK 1.0.10 ─────────────────────────────────────────────────────────────
+    /** Whether the fused provider holds back its first fix until it reaches the requested
+     *  accuracy. Default `true` — the behaviour that shipped when this was hardcoded — which
+     *  trades time-to-first-fix for quality. The trade is charged far more often than once per
+     *  session: the SDK rebuilds the location request on every cadence change and each rebuild
+     *  re-arms the wait, so every vehicular-tier and turn-burst transition starts with a stall,
+     *  which is exactly where the extra samples were wanted.
+     *
+     *  `false` takes the first fix as it comes and lets the accuracy meter judge it. Ignored by
+     *  the `LocationManager` providers (`gpsOnly` and friends) — the platform API has no
+     *  equivalent, so those always behave as `false`.
+     *
+     *  Permanently Android-only: iOS `CLLocationManager` has no counterpart. */
+    waitForAccurateLocation?: boolean;
+    /** Applies the SDK's `aggressiveOemProfile()` preset BEFORE any other key in this block —
+     *  `maxUpdateDelayMs = 0`, `waitForAccurateLocation = false`, and `wakeLockMs` doubled — so
+     *  your own values still win wherever you also send them.
+     *
+     *  The latency-over-battery trade for hardware whose background tracking is *late* rather
+     *  than absent. Deliberately not an OEM detector: nothing branches on `Build.MANUFACTURER`,
+     *  because the behaviour it compensates for is a *setting* (MIUI/HyperOS "Battery saver") a
+     *  user on any device can turn on. Costs battery — right for a field-force app whose users
+     *  are paid to be tracked, wrong for a background feature the user did not ask for. */
+    aggressiveOemProfile?: boolean;
     maxRecords?: number;
     /** Permanently Android-only: CMPedometer has no batch-latency parameter. */
     stepBatchLatencyMs?: number;
@@ -195,6 +228,21 @@ export type TrackerConfig = {
     watchdogIntervalMs?: number;
     watchdogThrottleMs?: number;
     wakeLockMs?: number;
+    /** SDK 1.0.10. Cadence of the `AlarmManager` heartbeat that restores the service after an OEM
+     *  kill, in minutes. Default 15; `0` disables it.
+     *
+     *  The one revival path that is not a `WorkManager` job — and that is the point. A
+     *  MIUI/HyperOS app left at the default *Restricted* battery setting does not get jobs run at
+     *  all, which takes out `backstopIntervalMin` and the restore worker together; `AlarmManager`
+     *  is a separate subsystem with separate throttling.
+     *
+     *  Fifteen minutes because that is what `setAndAllowWhileIdle` will actually honour in Doze —
+     *  the platform rate-limits while-idle alarms to roughly one per maintenance window, so asking
+     *  for one a minute buys nothing and costs the wakeups that do land. A host that declares
+     *  `SCHEDULE_EXACT_ALARM` itself upgrades this alarm to exact, which on API 31+ is also what
+     *  makes it eligible to start the foreground service; the SDK does not declare that permission
+     *  on your behalf. */
+    serviceHeartbeatMin?: number;
     notificationTitle?: string;
     notificationText?: string;
     notificationChannelId?: string;

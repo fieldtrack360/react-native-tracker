@@ -130,6 +130,24 @@ public final class TrackerSyncImpl: NSObject {
     }
   }
 
+  // MARK: - Session logs — ANDROID ONLY
+
+  /// The session-log channel is `fieldtrack-sync`'s (Android SDK 1.0.10) and has NO iOS
+  /// counterpart — not a stub, not an empty implementation. Every method rejects
+  /// `unsupportedOnPlatform` naming the method and the platform, the same contract the main
+  /// module's `androidIntegrity()` / `androidLicenseInfo()` family answers with.
+  ///
+  /// One entry point rather than ten near-identical ones: the whole body is the rejection, so a
+  /// per-method function would carry nothing but its own name. The .mm passes that name in.
+  @objc(rejectAndroidOnly:onReject:)
+  public static func rejectAndroidOnly(method: NSString,
+                                       onReject: @escaping (NSString, NSString) -> Void) {
+    onReject(
+      "unsupportedOnPlatform" as NSString,
+      "\(method) is Android-only; the iOS SDK has no session-log channel" as NSString
+    )
+  }
+
   // MARK: - onSyncEvent subscription layer
 
   /// Installed once by the ObjC++ host at init. `payload` is an NSDictionary (the sync event); the

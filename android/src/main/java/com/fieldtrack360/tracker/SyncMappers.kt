@@ -5,6 +5,11 @@
 // sync surface lives in a distinct module (com.field360.traker.sync) and a distinct TurboModule.
 package com.fieldtrack360.tracker
 
+import com.field360.traker.sync.LogLevel
+import com.field360.traker.sync.LogRecord
+import com.field360.traker.sync.LogSyncConfig
+import com.field360.traker.sync.LogSyncQueue
+import com.field360.traker.sync.LogType
 import com.field360.traker.sync.SyncConfig
 import com.field360.traker.sync.SyncEvent
 import com.field360.traker.sync.SyncQueue
@@ -157,4 +162,146 @@ object SyncMappers {
     // this `when` must stay exhaustive — that is the signal we want when a future case lands.
     is SyncEvent.NetworkAvailable -> null
   }
+
+  // ── Session logs (Android SDK 1.0.10) ─────────────────────────────────────────
+  // The second channel's vocabulary. ANDROID-ONLY: there is no iOS twin of any of this, so nothing
+  // here has a `ios/SyncMappers.swift` counterpart to stay in step with.
+
+  // Wire LogSyncConfig JSON -> native `LogSyncConfig`.
+  //
+  // `url` is OPTIONAL here, unlike the points config, and that is the whole design: omitting it is
+  // what makes the channel FOLLOW the points endpoint (`TrackerSync.configureLogs` resolves it
+  // against the SyncConfig in force plus `v1/logs/batch`, and inherits `device_id` and the points
+  // headers). So an absent url must reach the builder as the SDK's own empty default, never as a
+  // literal written here.
+  //
+  // `build()`, not a validating construct: resolution AND validation both belong to
+  // `configureLogs()`, which resolves first and then reports what is wrong. Validating here would
+  // reject the bare-path and no-url cases it would have completed.
+  fun logSyncConfigFromWire(json: String): LogSyncConfig {
+    val o = JSONObject(json) // throws JSONException on undecodable JSON -> invalidConfig
+    val b = LogSyncConfig.builder()
+
+    if (o.has("url") && !o.isNull("url")) b.url(o.getString("url"))
+    if (o.has("deviceId") && !o.isNull("deviceId")) b.deviceId(o.getString("deviceId"))
+    if (o.has("method") && !o.isNull("method")) b.method(o.getString("method"))
+    o.optJSONObject("headers")?.let { h ->
+      val keys = h.keys()
+      while (keys.hasNext()) {
+        val k = keys.next()
+        b.header(k, h.getString(k))
+      }
+    }
+    // Same rules as the points channel's extraParams, and the same jsonToAny: a null-valued key is
+    // dropped, a null inside an array throws.
+    o.optJSONObject("extraParams")?.let { e ->
+      val keys = e.keys()
+      while (keys.hasNext()) {
+        val k = keys.next()
+        if (e.isNull(k)) continue
+        b.extraParam(k, jsonToAny(e.get(k), k))
+      }
+    }
+
+    if (o.has("autoSync")) b.autoSync(o.getBoolean("autoSync"))
+    if (o.has("level")) {
+      logLevel(o.optString("level"))?.let { b.level(it) }
+    }
+    o.optJSONArray("types")?.let { arr ->
+      // An unrecognised member is skipped rather than defaulted, but an array that yields NOTHING
+      // is not written at all: an empty set would silence the channel completely, which is never
+      // what a typo meant, and `disableLogSync()` is how a host actually says that.
+      val types = (0 until arr.length()).mapNotNull { logType(arr.optString(it)) }.toSet()
+      if (types.isNotEmpty()) b.types(types)
+    }
+    if (o.has("bufferCapacity")) b.bufferCapacity(o.getInt("bufferCapacity"))
+    if (o.has("retentionHours")) b.retentionHours(o.getInt("retentionHours"))
+    if (o.has("batchSize")) b.batchSize(o.getInt("batchSize"))
+    if (o.has("requiresUnmeteredNetwork")) {
+      b.requiresUnmeteredNetwork(o.getBoolean("requiresUnmeteredNetwork"))
+    }
+    if (o.has("gzipRequestBody")) b.gzipRequestBody(o.getBoolean("gzipRequestBody"))
+    if (o.has("allowCleartext")) b.allowCleartext(o.getBoolean("allowCleartext"))
+    o.optJSONObject("timeouts")?.let { t ->
+      val d = SyncTimeouts()
+      b.timeouts(
+        SyncTimeouts(
+          if (t.has("connectMs")) t.getLong("connectMs") else d.connectMs,
+          if (t.has("readMs")) t.getLong("readMs") else d.readMs,
+          if (t.has("writeMs")) t.getLong("writeMs") else d.writeMs,
+        )
+      )
+    }
+    if (o.has("uploadIntervalMinutes")) b.uploadIntervalMinutes(o.getLong("uploadIntervalMinutes"))
+    // The one key where an explicit JSON `null` is MEANINGFUL rather than droppable: it turns the
+    // prompt drain off. Absent keeps the SDK default (WARN); present-and-null disables.
+    if (o.has("nudgeLevel")) {
+      if (o.isNull("nudgeLevel")) b.nudgeLevel(null)
+      else logLevel(o.optString("nudgeLevel"))?.let { b.nudgeLevel(it) }
+    }
+    if (o.has("nudgeCooldownMs")) b.nudgeCooldownMs(o.getLong("nudgeCooldownMs"))
+
+    return b.build()
+  }
+
+  // Native `LogRecord` -> wire. `elapsedRealtimeNanos` crosses as a STRING: it is a monotonic
+  // nanosecond stamp and passes 2^53 after roughly 104 days of uptime, which a double cannot hold
+  // exactly. The SDK's own upload DTO stringifies it for the same reason. Everything else is
+  // small enough to cross as a number.
+  //
+  // `data` is passed through as the stored STRING, never parsed: the SDK only checks that it is a
+  // JSON structure and does not own the shape, so re-encoding it here could only lose fidelity.
+  fun logRecordMap(record: LogRecord): WritableMap = Arguments.createMap().apply {
+    putString("id", record.id)
+    if (record.sessionId == null) putNull("sessionId") else putString("sessionId", record.sessionId)
+    putDouble("seq", record.seq.toDouble())
+    putDouble("timeMs", record.timeMs.toDouble())
+    putString("elapsedRealtimeNanos", record.elapsedRealtimeNanos.toString())
+    putString("level", record.level.wireName)
+    putString("type", record.type.wireName)
+    putString("tag", record.tag)
+    if (record.code == null) putNull("code") else putString("code", record.code)
+    putString("message", record.message)
+    if (record.data == null) putNull("data") else putString("data", record.data)
+  }
+
+  // Native `LogSyncQueue.Result` -> wire { kind, count? | reason?, retryAfterMs? | statusCode? }.
+  // NOT the points channel's four cases, and deliberately so:
+  //  - `Shipped`, not `Uploaded` — a different queue with a different name in the SDK, and keeping
+  //    the SDK's word is what stops the two results being read as interchangeable.
+  //  - `retryAfterMs` IS surfaced here, unlike on the points channel. There the SDK acts on the
+  //    server's Retry-After itself and the host has no decision to make; here `syncLogsNow()` is a
+  //    manual drain a host may be looping, so it needs to know how long to wait.
+  //  - `Rejected` is TERMINAL for this channel and inert for every other one — the buffer is kept
+  //    and no stored point is touched. The status code is carried because the two shapes behind it
+  //    need different reactions: 401/403 is a credential, 404/405/501 is an endpoint that is not
+  //    there. Recovery for both is a fresh configureLogs().
+  fun logSyncResultMap(result: LogSyncQueue.Result): WritableMap = Arguments.createMap().apply {
+    when (result) {
+      is LogSyncQueue.Result.Shipped -> {
+        putString("kind", "shipped")
+        putInt("count", result.count)
+      }
+      is LogSyncQueue.Result.Empty -> putString("kind", "empty")
+      is LogSyncQueue.Result.Retry -> {
+        putString("kind", "retry")
+        putString("reason", result.reason)
+        result.retryAfterMs?.let { putDouble("retryAfterMs", it.toDouble()) }
+      }
+      is LogSyncQueue.Result.Rejected -> {
+        putString("kind", "rejected")
+        putInt("statusCode", result.statusCode)
+      }
+    }
+  }
+
+  // Wire vocabulary -> the SDK enums. Lowercase both ways: `LogLevel.wireName` / `LogType.wireName`
+  // are `name.lowercase()`, so these are its exact inverse. An unrecognised value returns null and
+  // the caller leaves the SDK default in place rather than guessing — the same rule as the config
+  // enums in TrackerMappersInput.
+  fun logLevel(value: String?): LogLevel? =
+    LogLevel.entries.firstOrNull { it.wireName == value }
+
+  fun logType(value: String?): LogType? =
+    LogType.entries.firstOrNull { it.wireName == value }
 }

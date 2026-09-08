@@ -594,6 +594,12 @@ object TrackerMappers {
       is TrackerEvent.ProviderChange -> {
         putString("type", "providerChange")
         putMap("state", providerStateMap(e.state))
+        // SDK 1.0.10, Android-only — iOS `.providerChange` carries the new state alone. Null on
+        // the first observation after the monitor starts (the initial ProviderState is a
+        // constructor default, not something the device reported), and the key is then OMITTED
+        // rather than sent as null: absent reads as `undefined` in JS, which is what the optional
+        // field on the event union means.
+        e.previous?.let { putMap("previous", providerStateMap(it)) }
       }
       is TrackerEvent.Heartbeat -> {
         putString("type", "heartbeat")

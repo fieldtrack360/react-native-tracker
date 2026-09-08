@@ -143,9 +143,9 @@ every permission merge in from the AAR manifest — see [Permissions](#permissio
 
 ### iOS setup
 
-**1 — Call the launch hook in `AppDelegate`.** `Tracker.shared.ready()` reaches
-`BGTaskScheduler.register(...)`, which Apple requires *before* `didFinishLaunching` returns — and
-React Native starts JS only after that returns. So one native line is unavoidable:
+**1 — Call the launch hook in `AppDelegate`.** The SDK reaches `BGTaskScheduler.register(...)`,
+which Apple requires *before* `didFinishLaunching` returns — and React Native starts JS only after
+that returns. So one native line is unavoidable:
 
 ```swift
 // ios/<App>/AppDelegate.swift
@@ -168,10 +168,16 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 }
 ```
 
-`TrackerLaunch.ready()` loads an optional `tracker.config.json` from the app bundle (SDK defaults
-if the file is absent or unparseable) and calls the native `ready(config)`. Calling
+`TrackerLaunch.ready()` registers the SDK's background-task handlers — the half that must happen
+inside the launch window — then loads an optional `tracker.config.json` from the app bundle (SDK
+defaults if the file is absent or unparseable) and calls the native `ready(config)`. Calling
 `Tracker.ready(config)` from JS afterwards is safe and re-applies capture parameters — but
 **fields affecting background-task registration are fixed at launch on iOS**.
+
+Skipping the call is safe for tracking and costs you the 15-minute background backstop, which is
+advisory — neither the continuous stream nor the relaunch primitives go through `BGTaskScheduler`.
+You are told through the `backgroundTasksNotRegistered` error code, and a **DEBUG build fails
+`ready()` outright** so the mistake cannot reach a release.
 
 **2 — `Info.plist`** — usage strings, background modes, and the **verbatim** background-task
 identifiers (a mismatch is a launch-window exception, not a degraded backstop):
@@ -266,9 +272,7 @@ Expo Go cannot load this SDK — use a development build.
 
 ## Licensing
 
-Tracker is licensed software, and **the two platforms enforce it differently as of Android
-`1.0.1`** — the Android SDK removed its offline signature gate, iOS kept its own. Read the
-enforcement table below before you build a licence-gating screen on top of `ready()`.
+Tracker is licensed software. Read the enforcement table below before you build a licence-gating screen on top of `ready()`.
 
 ### Getting a licence
 
@@ -864,10 +868,6 @@ rung 5 of the [permission ladder](#runtime-requests--use-trackerpermissions-not-
 A refusal does not stop capture, but a session with no visible notification is a stronger candidate
 for the OS to kill.
 
-Requires Android SDK **1.0.7-alpha5** or newer — this release pins **1.0.9-alpha01**. Earlier SDKs accepted
-the five wording keys and ignored them, always posting the defaults; the three sync-status keys
-land in `1.0.7-alpha5` itself.
-
 ---
 
 ## Sessions
@@ -1127,8 +1127,6 @@ unset the body is byte-identical to a build without it, so an existing backend n
 - **Android caps nesting at 10 levels** and rejects an unserializable value at `configure()` time,
   naming the key, rather than failing hours later mid-drain.
 
-Requires iOS SDK **1.0.5** / Android SDK **1.0.9-alpha01** — the pinned versions of this release.
-
 `forbidden` is **Android only** (the iOS SDK has no such case) and is deliberately not folded onto
 `authExpired`. A 401 is a teardown — Android stops tracking, clears the queue and forgets the config
 — while a 403 keeps tracking running and every queued row intact, and only halts the retry loop.
@@ -1144,6 +1142,65 @@ still reports itself through `httpResponse`.) Android also replays the last exch
 subscriber, so the first event after subscribing may describe a drain that finished earlier; iOS
 replays nothing. `TrackerSync.ios.onSyncEvent` remains as a
 deprecated alias for the same function.
+
+### Session logs — Android only
+
+Points answer *where the device was*. Session logs answer *why there is nothing there*. New at the
+Android **1.0.10** pin, off by default, and reached through `TrackerSync.android.*` — the iOS SDK
+has no counterpart, so every method here rejects `unsupportedOnPlatform` on iOS.
+
+```ts
+import { TrackerSync } from '@fieldtrack360/react-native-tracker';
+
+// Follows the points endpoint: the origin of the SyncConfig already in force plus
+// `v1/logs/batch`, inheriting device_id and headers. That is the intended use.
+await TrackerSync.android.configureLogs();
+
+await TrackerSync.android.log({
+  level: 'warn',
+  tag: 'Checkout',
+  message: 'driver marked delivered with no fix in 4 min',
+  code: 'NO_FIX',
+  data: JSON.stringify({ orderId: 'A-4471' }),   // a JSON structure, as a string
+});
+await TrackerSync.android.logLifecycle('session_start');
+
+const { configured, endpoint } = await TrackerSync.android.logStatus();
+const waiting = await TrackerSync.android.pendingLogCount();   // TrackerResult<number>
+const entries = await TrackerSync.android.getLogs({ limit: 50 });
+const result = await TrackerSync.android.syncLogsNow();        // shipped/empty/retry/rejected
+
+await TrackerSync.android.disableLogSync();
+```
+
+**It cannot lose you a position.** The buffer is a separate database from the one holding points,
+so a credential failure on the log endpoint cannot reach a stored position — which is what makes it
+safe to point at a different endpoint with different credentials.
+
+`syncLogsNow()` answers `shipped` / `empty` / `retry` / `rejected` — **not** `syncNow()`'s four.
+`rejected` is terminal for this channel and carries the status code: 401/403 means the credential,
+404/405/501 means there is no endpoint at that URL. Either way the buffer is kept and tracking is
+untouched; recover with a fresh `configureLogs()`.
+
+**Filtering happens at record time, not upload time** (`level`, `types`), so raising `level` later
+does not retroactively drop what is already buffered. Uploads are a 15-minute heartbeat, except
+that an entry at `nudgeLevel` (`'warn'` by default) asks for one straight away, throttled to one
+per `nudgeCooldownMs`. `nudgeLevel: null` turns that off.
+
+> **`types` defaults to `['event', 'lifecycle', 'message']` — `'decision'` is not in it, and should
+> not be for a fleet.** The SDK's per-fix decision log is roughly 29 000 entries per device per
+> shift. Turn it on for a named device with a ticket open. The first `configureLogs()` that enables
+> it moves the watermark to the newest row, so an opt-in ships the next drive rather than the last
+> three days.
+
+`getLogs()` returns entries newest-first. `record.data` is the raw JSON **string** as stored —
+parse it yourself, in a try/catch — and `record.elapsedRealtimeNanos` is a **string** because a
+monotonic nanosecond stamp passes what a JS number holds exactly after about 104 days of uptime.
+
+`TrackerSync.android.onLogEvent(cb)` is this channel's own stream, separate from `onSyncEvent`.
+Only `httpResponse` arrives, as on the points stream.
+
+Server contract: `v1/logs/batch`, documented in the Android SDK's `docs/APP-LOG-API.md`.
 
 ---
 
@@ -1304,6 +1361,22 @@ one.
 | `onSyncEvent(cb)` | `(e: SyncEvent) => void` | `() => void` | Both platforms; only `httpResponse` is emitted on Android |
 | `ios.onSyncEvent(cb)` | `(e: SyncEvent) => void` | `() => void` | **Deprecated** alias for `onSyncEvent` |
 
+Session logs — **Android only**, Android SDK 1.0.10. Every one of these rejects
+`unsupportedOnPlatform` on iOS.
+
+| Method | Parameters | Returns | Notes |
+|---|---|---|---|
+| `android.configureLogs(config?)` | `LogSyncConfig` | `Promise<void>` | With no argument, follows the points endpoint (`v1/logs/batch`) and inherits its `device_id` and headers. Rejects `invalidConfig` on bad JSON or a failed `LogSyncConfig.validate()` |
+| `android.disableLogSync()` | — | `Promise<void>` | Stops shipping, cancels the worker; the buffer is kept |
+| `android.log(entry)` | `{ level, tag, message, code?, data? }` | `Promise<void>` | `data` must be a JSON structure as a string. An entry at `nudgeLevel` or worse asks for a drain immediately |
+| `android.logLifecycle(phase, tag?)` | `LifecyclePhase \| string`, `string` | `Promise<void>` | `tag` defaults to `"Host"` |
+| `android.getLogs(opts?)` | `{ sessionId?, limit?, offset? }` | `Promise<LogRecord[]>` | Newest-first; defaults limit 200 / offset 0 |
+| `android.pendingLogCount()` | — | `Promise<TrackerResult<number>>` | A different queue from `pendingCount()` — the two numbers are unrelated |
+| `android.syncLogsNow()` | — | `Promise<LogSyncResult>` | `shipped` / `empty` / `retry` / `rejected` — **not** the points channel's four |
+| `android.requestLogSync()` | — | `Promise<void>` | No-op, not an error, when the channel is unconfigured or terminally rejected |
+| `android.logStatus()` | — | `Promise<{ configured, endpoint? }>` | |
+| `android.onLogEvent(cb)` | `(e: SyncEvent) => void` | `() => void` | This channel's own stream; only `httpResponse` arrives |
+
 ### Components
 
 `TrackMapView` and `LiveTrackMapView` — see [MapView](#mapview).
@@ -1313,20 +1386,23 @@ one.
 Bridge **rejections** use these codes: `invalidConfig` (bad arguments / undecodable JSON),
 `unsupportedOnPlatform` (wrong-platform namespace), `internalError` (an unexpected native throw).
 
-Domain failures **resolve** with an `ErrorCode` (32 values):
+Domain failures **resolve** with an `ErrorCode` (33 values):
 
 - **Shared (22):** `notReady`, `permissionDenied`, `backgroundPermissionMissing`, `coarseOnly`,
   `locationDisabled`, `fgsStartRefused`, `fixTimeout`, `storageFull`, `storageReset`,
   `trackerDead`, `invalidConfig`, `motionDetectionDegraded`, `snapUnavailable`, `internalError`,
   `licenseMissing`, `licenseInvalid`, `licenseBundleMismatch`, `licenseRevoked`, `licenseExpired`,
   `geofenceRegistrationFailed`, `geofenceRemovalFailed`, `geofenceLimitReached`
-- **iOS only (3):** `oneShotBusy`, `oneShotCircuitOpen`, `fixRejected` — all three from
-  `getCurrentLocation()`, and none of them worth retrying
+- **iOS only (4):** `oneShotBusy`, `oneShotCircuitOpen`, `fixRejected` — all three from
+  `getCurrentLocation()`, and none of them worth retrying — plus `backgroundTasksNotRegistered`
 - **Android only (7):** `playServicesUnavailable`, `notificationHidden`, `noActivity`,
   `deviceIntegrityBlocked`, `licenseUnknown`, `licensePackageMismatch`, `licenseSdkMismatch`
 
-The three `geofence*` codes are shared as of the pinned iOS SDK `1.0.5`, which added them to its
-own enum; they were Android-only before it. `fgsStartRefused` exists in the iOS enum but is never
+The three `geofence*` codes are shared as of iOS SDK `1.0.5`, which added them to its
+own enum; they were Android-only before it. `backgroundTasksNotRegistered` means a `BGTaskScheduler`
+launch handler could not be installed — an identifier missing from
+`BGTaskSchedulerPermittedIdentifiers`, or `TrackerLaunch.ready()` missing from the AppDelegate. It
+is **not** a tracking failure: you lose the advisory 15-minute backstop and nothing else. `fgsStartRefused` exists in the iOS enum but is never
 emitted there. `deviceIntegrityBlocked` is
 release-only (the integrity layer is waived on debuggable installs) and **ends an in-flight
 session** — treat it as a stop, not a warning.
@@ -1405,6 +1481,11 @@ type TrackOptions = {
   snapMaxOffRoadM?; polylinePrecision?; arrowMinSegmentM?; simplifyEpsilonM?: number;
   includeRawPoints?; consolidateStops?; snapToRoad?: boolean;
   smoothing?: 'none' | 'spline' | 'bezier'; speedBandsKmph?: number[];
+  // Android SDK 1.0.10. Bounds on the road geometry INJECTED BETWEEN two snapped fixes —
+  // a larger claim than snapMaxOffRoadM's "may this point move onto the road": a wrong point is
+  // metres wrong, a wrong span is a confident line down streets nobody drove. iOS has no
+  // counterpart; sent there, they are ignored rather than an error.
+  android?: { snapMaxDetourFactor?: number; snapBridgeFlatM?: number };
 };
 
 type LiveTrackUpdate = {
@@ -1456,13 +1537,19 @@ namespaces. Every field is optional — omit it to keep the SDK default.
 | Group | Fields |
 |---|---|
 | Top level | `license`, `reset` (default **true**: the config passed to `ready()` persists; `false` → an existing persisted config wins in full) |
-| Geolocation | `trackingMode`, `desiredAccuracy`, `accuracy: { profile, maxAccuracyMeters, recoveryTrustMeters }`, `intervalMs`, `vehicularIntervalMs` (**must be `<= intervalMs`** while `adaptiveCadence` is on — iOS `ready()` refuses an inverted ladder with `invalidConfig`), `adaptiveCadence`, `turnBurst`, `turnBurstIntervalMs`, `navigationMode`, `navigationIntervalMs`, `oneShotTimeoutMs`, `mockLocationPolicy`, `deliveryStalenessMs` |
+| Geolocation | `trackingMode`, `desiredAccuracy`, `accuracy: { profile, maxAccuracyMeters, recoveryTrustMeters }`, `intervalMs`, `vehicularIntervalMs` (**must be `<= intervalMs`** while `adaptiveCadence` is on — iOS `ready()` refuses an inverted ladder with `invalidConfig`), `adaptiveCadence`, `turnBurst`, `turnBurstIntervalMs`, `navigationMode`, `navigationIntervalMs`, `oneShotTimeoutMs`, `mockLocationPolicy`, `deliveryStalenessMs` (a diagnostic, never a gate — and read by nothing at all before the 1.0.10 Android pin) |
 | Motion | `activityRecognition`, `activityConfidenceMin` (**unnormalized**: 66 iOS / 75 Android by design), `snapshotConfidenceMin`, `stopTimeoutMin`, `stationaryRadiusM`, `motionTriggerDelayMs`, `heartbeatIntervalSec`, `persistHeartbeat`, `bearingChangeCaptureDeg` (**30** on both since the pinned SDKs; was 40), `cornerAnchorCapture`, `stopOnStationary`, `disableStopDetection`, `activityRecognitionIntervalMs` (a real battery control on Android; a delivery throttle that saves nothing on iOS) |
 | Sensors | `useStepCorroboration`, `useAccelerometerVeto`, `useBarometer`, `useSignificantMotion` (**unnormalized**: a hardware sensor on Android, the pedometer with an accelerometer fallback on iOS), `useGyroTurnPrediction` |
 | Persistence | `maxDaysToPersist`, `persistRawFixes`, `rawFixRingCapacity`, `persistRawPoints`, `rawPointRingCapacity`, `persistDecisions`, `decisionRetentionDays`, `decisionMaxRows` |
 | Service | `healthLoopMs`, `backstopIntervalMin`, `deadTrackerMovingMin`, `deadTrackerStationaryMin` |
 | `ios` | `backgroundLocationIndicator`, `stillConfidenceMin`, `useSignificantLocationChange`, `useStationaryFence`, `stationaryAccuracy`, `speedAdaptiveCadence`, `targetSpacingM`, `minIntervalMs`, `maxIntervalMs`, `significantMotionSteps`, `significantMotionAccelG`, `significantMotionAccelSustainMs`, `stationaryGeofenceId` (must carry the reserved `tracker-stationary` prefix), `stationaryGeofenceOnExitEvent` |
-| `android` | `providerType`, `fastestIntervalMs`, `maxUpdateDelayMs`, `maxFixAgeMs`, `navigationFastestIntervalMs`, `distanceFilterM`, `maxRecords`, `stepBatchLatencyMs`, `stationaryGeofenceId`, `stationaryGeofenceOnEnterEvent`, `stationaryGeofenceOnExitEvent`, `foregroundService`, `stopOnTerminate`, `enableHeadless`, `startOnBoot`, `watchdogIntervalMs`, `watchdogThrottleMs`, `wakeLockMs`, `notificationTitle`, `notificationText`, `notificationChannelId`, `notificationChannelName`, `notificationSmallIconResName`, `showSyncStatusInNotification`, `syncNotificationSubText`, `syncNotificationText` |
+| `android` | `providerType`, `fastestIntervalMs`, `maxUpdateDelayMs`, `maxFixAgeMs`, `navigationFastestIntervalMs`, `distanceFilterM`, `waitForAccurateLocation`, `aggressiveOemProfile`, `maxRecords`, `stepBatchLatencyMs`, `stationaryGeofenceId`, `stationaryGeofenceOnEnterEvent`, `stationaryGeofenceOnExitEvent`, `foregroundService`, `stopOnTerminate`, `enableHeadless`, `startOnBoot`, `watchdogIntervalMs`, `watchdogThrottleMs`, `wakeLockMs`, `serviceHeartbeatMin`, `notificationTitle`, `notificationText`, `notificationChannelId`, `notificationChannelName`, `notificationSmallIconResName`, `showSyncStatusInNotification`, `syncNotificationSubText`, `syncNotificationText` |
+
+Three `android` fields are new at the **1.0.10** pin: `waitForAccurateLocation` and
+`aggressiveOemProfile` trade battery for latency on hardware whose background tracking is *late*
+rather than absent, and `serviceHeartbeatMin` is an `AlarmManager` service-revival heartbeat that
+keeps working on a MIUI/HyperOS app left at *Restricted*, where the `WorkManager` paths do not run
+at all.
 
 Per-field docblocks live in `src/types/config.ts`.
 
@@ -1670,6 +1757,8 @@ Fetch-script environment variables (all optional):
 | Notification text is right but the icon is the generic pin | The name in `notificationSmallIconResName` did not resolve. It is a filename in `android/app/src/main/res/drawable/` with no path and no extension; logcat names the one it could not find |
 | Session stops when the app is swiped away | `android.stopOnTerminate` — and check the notification permission: a suppressed foreground-service notification makes the OS more willing to kill the app |
 | `playServicesUnavailable` | The device has no usable Google Play services; the fused provider is unavailable |
+| Background points arrive in clumps a minute late, then catch up | OS batching, not a dead provider — the default `android.maxUpdateDelayMs` lets the OS hold a fix for a full interval. Set `android.aggressiveOemProfile: true` (Android SDK 1.0.10) for the whole latency trade, or `android.maxUpdateDelayMs: 0` for that half alone. Set `deliveryStalenessMs` to have lateness reported as a `diagnostic` event so you can tell this apart from a provider that has stopped |
+| Nothing recovers the service on MIUI/HyperOS at the *Restricted* battery setting | `JobScheduler` does not run there at all, which takes out `backstopIntervalMin` and the restore worker together. `android.serviceHeartbeatMin` (Android SDK 1.0.10, default 15) is an `AlarmManager` chain on a separate subsystem. Declaring `SCHEDULE_EXACT_ALARM` in your own manifest upgrades it to an exact alarm, which on API 31+ is also what makes it eligible to start the foreground service — the SDK will not declare that permission on your behalf |
 | `NoClassDefFoundError: Failed resolution of: Lokhttp3/internal/Util;` on the first cookie-bearing request | A split OkHttp family. The SDK links OkHttp 5, which deleted that internal class, and Gradle's conflict resolution raises the `okhttp` module alone — React Native's `okhttp-urlconnection` 4.x stays behind and its `JavaNetCookieJar` calls into the removed class. Fixed by the pinned Android SDK from `1.0.9`, which constrains `okhttp-urlconnection` to the core jar's version. If your own build forces OkHttp versions, align both artifacts yourself. A `-dontwarn okhttp3.**` keep rule is the wrong fix — it turns the build-time error into this crash |
 
 ### iOS
@@ -1677,6 +1766,8 @@ Fetch-script environment variables (all optional):
 | Symptom | Cause / fix |
 |---|---|
 | Crash in the launch window naming a background-task identifier | `BGTaskSchedulerPermittedIdentifiers` is missing or does not match `com.fieldtrack360.tracker.backstop` / `com.fieldtrack360.tracker.sync` **verbatim** |
+| `ready()` resolves `backgroundTasksNotRegistered` | The `BGTaskScheduler` launch handlers were never installed — either an identifier is missing from `BGTaskSchedulerPermittedIdentifiers`, or the registration ran after launch. Tracking is unaffected; you lose the advisory 15-minute backstop. `TrackerLaunch.ready()` does this for you, so the fix is to call it as the first statement of `didFinishLaunchingWithOptions` |
+| `ready()` fails outright, but only in debug | The same cause as the row above. A DEBUG build refuses rather than degrading, deliberately, so a missing launch call cannot ship. Release builds never fail for it |
 | No background capture at all, no error | `TrackerLaunch.ready()` is not called from `didFinishLaunchingWithOptions`, or is called after React Native starts |
 | `dyld: … MinimumOSVersion` load failure at launch | The app target's `IPHONEOS_DEPLOYMENT_TARGET` is below 17.0. The Podfile `post_install` gate catches this at install time — add it |
 | Crash on first permission prompt | A missing `NSLocation…UsageDescription` / `NSMotionUsageDescription` string |
@@ -1725,13 +1816,6 @@ Fetch-script environment variables (all optional):
 - **Expo Go is not supported** — use a development build / prebuild.
 
 ---
-
-## Security
-
-The Android SDK needs no build-time credential — the AARs resolve anonymously from JitPack, so
-there is no repository token to store or rotate. Licence tokens are bundle-bound and verified
-offline, but they still belong in gitignored properties rather than committed source (the AAR ships a `FieldTrackLicenseHardcoded` lint warning for exactly this). The
-iOS frameworks are pinned by SHA-256 and re-verified on every install.
 
 ## License
 

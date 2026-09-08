@@ -2,7 +2,8 @@
 //
 // Phase 7 sync module. SEPARATE "TrackerSync" TurboModule, distinct from the main Tracker
 // module. The public surface is TrackerSync.{ configure, requestSync, syncNow, pendingCount,
-// onSyncEvent }.
+// onSyncEvent } plus the ANDROID-ONLY session-log channel under TrackerSync.android.* (Android
+// SDK 1.0.10) — a second endpoint, database and worker, described at that namespace below.
 //
 // Config is MOSTLY DIVERGENT and crosses as a JSON string: shared = url/method/headers/autoSync/
 // batchSize; the two network gates are NOT unified (iOS ios.requiresNetworkConnectivity = "any
@@ -22,7 +23,16 @@
 // case). An Android host reads upload outcomes from syncNow()/pendingCount() instead.
 import { NativeEventEmitter, type EmitterSubscription } from 'react-native';
 import TrackerSyncNative from './NativeTrackerSync';
-import type { SyncConfig, SyncEvent, SyncResult } from './types/sync';
+import type {
+  LifecyclePhase,
+  LogLevel,
+  LogRecord,
+  LogSyncConfig,
+  LogSyncResult,
+  SyncConfig,
+  SyncEvent,
+  SyncResult,
+} from './types/sync';
 import type { TrackerResult } from './types';
 
 type Envelope = { id: number; payload: unknown };
@@ -68,6 +78,16 @@ function pendingCount(): Promise<TrackerResult<number>> {
 // Only `httpResponse` arrives on Android — switch on `event.type` and let the other three fall
 // through rather than assuming a platform.
 function onSyncEvent(cb: (event: SyncEvent) => void): () => void {
+  return subscribe(() => TrackerSyncNative.subscribeSyncEvents(), cb);
+}
+
+// The shared attach/route/detach machinery. Both streams on this module — the points stream and
+// the Android-only log stream — ride the SAME device event and the SAME native id space, so they
+// differ only in which native subscribe call starts them and `unsubscribe(id)` ends either.
+function subscribe<E>(
+  start: () => Promise<number>,
+  cb: (event: E) => void
+): () => void {
   let nativeId: number | null = null;
   let cancelled = false;
   const pending: Envelope[] = [];
@@ -83,11 +103,11 @@ function onSyncEvent(cb: (event: SyncEvent) => void): () => void {
         pending.push(env);
         return;
       }
-      if (env.id === nativeId) cb(env.payload as SyncEvent);
+      if (env.id === nativeId) cb(env.payload as E);
     }
   );
 
-  TrackerSyncNative.subscribeSyncEvents()
+  start()
     .then((id) => {
       if (cancelled) {
         // Unsubscribed before the id came back — tear the native Task/Job down immediately.
@@ -95,8 +115,7 @@ function onSyncEvent(cb: (event: SyncEvent) => void): () => void {
         return;
       }
       nativeId = id;
-      for (const env of pending)
-        if (env.id === id) cb(env.payload as SyncEvent);
+      for (const env of pending) if (env.id === id) cb(env.payload as E);
       pending.length = 0;
     })
     .catch(() => {
@@ -121,6 +140,111 @@ const ios = {
   onSyncEvent,
 };
 
+// ── android.* — the session-log channel (Android SDK 1.0.10) ─────────────────────
+// A SECOND diagnostic channel: its own endpoint, its own database file, its own worker. The iOS
+// SDK has no counterpart, so every call here REJECTS `unsupportedOnPlatform` on iOS — the same
+// contract as `Tracker.android.*`.
+//
+// The isolation is the point. Nothing on this channel can reach `stop()`, the point queue, or a
+// row of stored positions, because the buffer is a different database file; a credential failure
+// on the log endpoint is structurally unable to lose a position. The failure policy is also the
+// deliberate INVERSE of the points channel in two places: a permanently-rejected batch is dropped
+// rather than retried forever, and a refusal of the channel itself (401/403, or 404/405/501 for
+// "no endpoint here") halts shipping while KEEPING the buffer.
+const android = {
+  /** Turn the channel on. With no argument it FOLLOWS the points endpoint — the origin of the
+   *  `SyncConfig` already in force plus `v1/logs/batch`, inheriting `device_id` and the points
+   *  headers — which is the intended use; a different `deviceId` would produce two unrelated
+   *  datasets. Rejects `invalidConfig` on anything the SDK's own validation reports.
+   *
+   *  Calling it again re-resolves the config in place; the buffer is untouched. */
+  configureLogs(config: LogSyncConfig = {}): Promise<void> {
+    return TrackerSyncNative.androidConfigureLogs(JSON.stringify(config));
+  },
+
+  /** Stop shipping and cancel the worker. The buffer is KEPT — a later `configureLogs()` resumes
+   *  with what is still in it, which is also the recovery path from a `rejected` result. */
+  disableLogSync(): Promise<void> {
+    return TrackerSyncNative.androidDisableLogSync();
+  },
+
+  /** Write one host entry (recorded as type `message`). `data` must be a JSON structure — an
+   *  object or an array — already serialised to a string; the SDK drops anything else rather than
+   *  storing a bare scalar. Forwarded only, so it resolves without waiting on the database.
+   *
+   *  An entry at or above the configured `nudgeLevel` (default `warn`) asks for an upload straight
+   *  away instead of waiting out the 15-minute heartbeat. */
+  log(entry: {
+    level: LogLevel;
+    tag: string;
+    message: string;
+    code?: string;
+    data?: string;
+  }): Promise<void> {
+    return TrackerSyncNative.androidLog(
+      entry.level,
+      entry.tag,
+      entry.message,
+      entry.code,
+      entry.data
+    );
+  },
+
+  /** Mark a lifecycle phase. The vocabulary is the SDK's own, and matching it is what lets a
+   *  dashboard line the host's entries up with the SDK's; a free string is still accepted.
+   *  `tag` defaults to `"Host"`. */
+  logLifecycle(phase: LifecyclePhase | string, tag?: string): Promise<void> {
+    return TrackerSyncNative.androidLogLifecycle(phase, tag);
+  },
+
+  /** Read stored entries back, newest-first. Defaults limit 200 / offset 0; an absent `sessionId`
+   *  reads across sessions. `record.data` is the raw JSON string as stored — parse it yourself. */
+  getLogs(opts?: {
+    sessionId?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<LogRecord[]> {
+    return TrackerSyncNative.androidGetLogs(
+      opts?.sessionId,
+      opts?.limit,
+      opts?.offset
+    ) as Promise<LogRecord[]>;
+  },
+
+  /** How many entries are waiting to ship. Separate from `pendingCount()` — different queue,
+   *  different database. */
+  pendingLogCount(): Promise<TrackerResult<number>> {
+    return TrackerSyncNative.androidPendingLogCount() as Promise<
+      TrackerResult<number>
+    >;
+  },
+
+  /** Drain the log buffer now. See `LogSyncResult` — the four cases are NOT the points channel's
+   *  four. */
+  syncLogsNow(): Promise<LogSyncResult> {
+    return TrackerSyncNative.androidSyncLogsNow() as Promise<LogSyncResult>;
+  },
+
+  /** Ask the worker to drain. A no-op — not an error — when the channel was never configured or
+   *  has been terminally rejected. */
+  requestLogSync(): Promise<void> {
+    return TrackerSyncNative.androidRequestLogSync();
+  },
+
+  /** Where diagnostics are going, and whether they are going anywhere. `endpoint` is undefined
+   *  until `configureLogs()` has been called, and `configured` is exactly that test. */
+  logStatus(): Promise<{ configured: boolean; endpoint?: string }> {
+    return TrackerSyncNative.androidLogStatus();
+  },
+
+  /** The log channel's own event stream — a separate flow from `onSyncEvent`, carrying THIS
+   *  channel's HTTP exchanges. Only `httpResponse` arrives (the Android `SyncEvent` has the one
+   *  case). Returns the unsubscribe function. */
+  onLogEvent(cb: (event: SyncEvent) => void): () => void {
+    return subscribe(() => TrackerSyncNative.androidSubscribeLogEvents(), cb);
+  },
+};
+
 export const TrackerSync = {
   configure,
   requestSync,
@@ -128,6 +252,7 @@ export const TrackerSync = {
   pendingCount,
   onSyncEvent,
   ios,
+  android,
 };
 
 export default TrackerSync;

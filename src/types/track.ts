@@ -99,7 +99,7 @@ export type Track = {
   warnings: string[];
 };
 
-// Identical fields on both platforms.
+// Identical fields on both platforms, apart from the `android` block.
 export type TrackOptions = {
   zoom?: number;
   includeRawPoints?: boolean;
@@ -116,6 +116,30 @@ export type TrackOptions = {
   speedBandsKmph?: number[];
   arrowMinSegmentM?: number;
   simplifyEpsilonM?: number;
+
+  /** Android SDK 1.0.10. Bounds on the road geometry INJECTED between two snapped fixes.
+   *  `snapMaxOffRoadM` above governs whether a *point* may be moved onto the road; these govern
+   *  whether the road *between* two such points may be drawn at all. Different claims, and the
+   *  second is the larger one — a wrong point is metres wrong, a wrong span is a confident line
+   *  down streets nobody drove. A field capture injected ~2 km of road between two fixes ~100 m
+   *  apart before this bound existed.
+   *
+   *  Android-only: the iOS `TrackOptions` has `snapToRoad` and `snapMaxOffRoadM` and no
+   *  counterpart to either of these. Sent on iOS they are ignored, not an error. */
+  android?: {
+    /** How much longer than the straight line between two snapped fixes the injected path may be.
+     *  Default 2.5 — a straight runs at 1.0, a bend up to ~1.6, a one-way system round three sides
+     *  of a block at ~3. Also, quietly, a speed limit: two fixes at the 12 s vehicular tier are
+     *  ~120 m apart, so 2.5 admits a 500 m road path between them and refuses a 900 m one, and
+     *  900 m in 12 s is 270 km/h. `Infinity` restores the unbounded pre-1.0.10 behaviour. */
+    snapMaxDetourFactor?: number;
+    /** The flat allowance under `snapMaxDetourFactor`, metres. Default 200. The ratio is
+     *  meaningless as the chord approaches zero, and the chord approaches zero exactly where the
+     *  geometry is most worth injecting: two fixes either side of a roundabout island sit 15 m
+     *  apart with 150 m of road between them — a factor of ten, and completely correct. A junction
+     *  turn, a U-turn and a hairpin all have that shape. */
+    snapBridgeFlatM?: number;
+  };
 };
 
 export type PuckState = {

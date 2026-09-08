@@ -20,7 +20,16 @@ export type TrackerEvent =
   | { type: 'motionChange'; state: MotionState; point: TrackPoint | null }
   | { type: 'activityChange'; activity: ActivityType; confidence: number }
   | { type: 'enabledChange'; enabled: boolean }
-  | { type: 'providerChange'; state: ProviderState }
+  // `previous` is ANDROID-ONLY and arrives from SDK 1.0.10; on iOS, and on an older Android pin,
+  // it is absent. It is the state this one replaced, and it is here so a host can tell WHICH field
+  // moved without keeping its own copy — a GPS provider toggle behind an unchanged master switch
+  // emits nothing else, and without it that is indistinguishable from a power-save flip.
+  //
+  // Absent is NOT "nothing moved": it is also what the first observation after the monitor starts
+  // carries, because the initial `ProviderState` is a constructor default rather than anything the
+  // device reported, and diffing against it would announce a GPS toggle and a permission grant on
+  // every launch.
+  | { type: 'providerChange'; state: ProviderState; previous?: ProviderState }
   | { type: 'heartbeat'; atMs: number }
   | { type: 'powerSaveChange'; enabled: boolean }
   | { type: 'sessionInterrupted'; session: TrackSession }

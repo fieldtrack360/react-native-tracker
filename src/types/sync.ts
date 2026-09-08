@@ -88,6 +88,126 @@ export type SyncResult =
   // a re-login. The iOS SDK has no such case, so this kind never arrives there.
   | { kind: 'forbidden' };
 
+// ── Session logs — ANDROID ONLY, Android SDK 1.0.10 ──────────────────────────────
+// A second, separate diagnostic channel with its own endpoint, its own database and its own
+// worker. Points answer *where the device was*; this answers *why there is nothing there*.
+//
+// Off by default and entirely inside `fieldtrack-sync`. Nothing on this channel can reach
+// `stop()`, the point queue, or a stored point: the log buffer is a DIFFERENT database file
+// (`fieldtrack-logs-<package>.db`), which is what makes a credential failure on the log endpoint
+// structurally unable to lose a position. The iOS SDK has no counterpart, so every method here
+// lives under `TrackerSync.android.*` and REJECTS `unsupportedOnPlatform` on iOS.
+
+/** Severity. Ordered — a recorder set to `warn` keeps `warn` and `error` and drops the rest. */
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+
+/** What kind of entry this is; the second gate, because `decision` is three orders of magnitude
+ *  noisier than the rest. `event` is `TrackerEvent` (permission and provider changes, errors,
+ *  capture suspensions), `lifecycle` is the session/service/process phases, `message` is what the
+ *  host writes through `log()`, and `decision` is the SDK's own per-fix decision log. */
+export type LogType = 'event' | 'decision' | 'message' | 'lifecycle';
+
+/** The phases `logLifecycle()` expects. Free strings are accepted — these are the SDK's own
+ *  vocabulary, and matching it is what lets a dashboard line the host's entries up with the
+ *  SDK's. */
+export type LifecyclePhase =
+  | 'session_start'
+  | 'session_stop'
+  | 'session_interrupted'
+  | 'service_start'
+  | 'service_stop'
+  | 'process_start'
+  | 'boot_completed'
+  | 'config_changed';
+
+export type LogSyncConfig = {
+  /** Absolute log endpoint. **Omit it and the channel FOLLOWS the points endpoint** — the origin
+   *  of the `SyncConfig` already in force plus `v1/logs/batch`. A relative path is resolved the
+   *  same way. That default is the intended use. */
+  url?: string;
+  /** Omit to INHERIT `device_id` from the points `SyncConfig.extraParams`. Sending a different one
+   *  produces two unrelated datasets, which is why inheriting is the default. */
+  deviceId?: string;
+  /** Default "POST". */
+  method?: string;
+  headers?: Record<string, string>;
+  /** Default true — a 15-minute `LogSyncWorker` heartbeat. With it off the host drives uploads
+   *  through `syncLogsNow()` / `requestLogSync()`. */
+  autoSync?: boolean;
+  /** Minimum severity KEPT. Default `info`. Filtering happens at RECORD time, not upload time:
+   *  it keeps the buffer a strict FIFO the uploader settles with one cursor, and stops a device
+   *  storing what it will never send. Raising it later does not retroactively drop what is
+   *  already buffered. */
+  level?: LogLevel;
+  /** Which kinds are kept. Default `['event','lifecycle','message']` — note `decision` is NOT in
+   *  it. Turning `decision` on is roughly 29 000 entries per device per shift: enable it for a
+   *  named device with a ticket open, not for a fleet. The first `configureLogs` that enables it
+   *  moves the watermark to the newest row, so an opt-in ships the next drive rather than the
+   *  last three days. */
+  types?: LogType[];
+  /** Rows held before the oldest are dropped. Default 5000. */
+  bufferCapacity?: number;
+  /** Default 72. */
+  retentionHours?: number;
+  /** Entries per upload. Default 200; the endpoint's ceiling is 500 and a batch over it is
+   *  rejected permanently rather than retried. */
+  batchSize?: number;
+  requiresUnmeteredNetwork?: boolean;
+  /** Default TRUE here — the inverse of the points channel, where it defaults false. */
+  gzipRequestBody?: boolean;
+  allowCleartext?: boolean;
+  timeouts?: { connectMs?: number; readMs?: number; writeMs?: number };
+  /** Heartbeat cadence. Default 15, and 15 is also the floor — `WorkManager` will not run a
+   *  periodic job more often. */
+  uploadIntervalMinutes?: number;
+  /** The prompt half of the channel: an entry at this level or worse asks for an upload straight
+   *  away instead of waiting out the heartbeat. Default `warn`; `null` disables it. A burst inside
+   *  the cooldown is DEFERRED to its end rather than dropped. */
+  nudgeLevel?: LogLevel | null;
+  /** Throttle on the above. Default 30 000. */
+  nudgeCooldownMs?: number;
+  /** Merged into the top level of every log request body — same shape and rules as the points
+   *  channel's `extraParams`. */
+  extraParams?: Record<string, SyncParamValue>;
+};
+
+/** One stored entry, as `getLogs()` returns it. `data` is the raw JSON string the entry carries,
+ *  not a parsed object: the SDK stores whatever was handed to `log()` and only checks that it is
+ *  a JSON structure. Parse it yourself, in a try/catch. */
+export type LogRecord = {
+  id: string;
+  sessionId: string | null;
+  /** Per (session, type) counter — the order entries were RECORDED in, which survives an upload
+   *  reordering them and is what a dashboard sorts by. */
+  seq: number;
+  timeMs: number;
+  /** Crosses as a STRING: it is a monotonic nanosecond stamp and exceeds what a JS number holds
+   *  exactly. Compare it as a BigInt, or not at all. */
+  elapsedRealtimeNanos: string;
+  level: LogLevel;
+  type: LogType;
+  tag: string;
+  code: string | null;
+  message: string;
+  data: string | null;
+};
+
+/** `syncLogsNow()`. Four cases, and they are NOT the points channel's four — this channel's
+ *  failure policy is deliberately the inverse in two places. */
+export type LogSyncResult =
+  | { kind: 'shipped'; count: number }
+  | { kind: 'empty' }
+  /** Transient. `retryAfterMs` is the server's own `Retry-After` when it sent one. `reason` also
+   *  carries the two "nothing to do" cases — the channel was never configured, or it has no
+   *  transport. */
+  | { kind: 'retry'; reason: string; retryAfterMs?: number }
+  /** TERMINAL for this channel and inert for every other one: the buffer is KEPT and not one
+   *  stored point is affected. Two shapes — the credential was refused (401, 403), or there is no
+   *  endpoint at this URL (404, 405, 501). The second is a statement about the endpoint rather
+   *  than about the bytes just sent, so retrying at the next heartbeat would only discard the
+   *  host's diagnostics to be told the same thing. Recovery is a fresh `configureLogs()`. */
+  | { kind: 'rejected'; statusCode: number };
+
 // Sync event stream (`TrackerSync.onSyncEvent`). `httpResponse` arrives on BOTH platforms; the
 // other three are iOS-only (the Android SDK's `SyncEvent` has the one case).
 export type SyncEvent =

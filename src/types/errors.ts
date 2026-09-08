@@ -1,6 +1,6 @@
 // Errors and result envelope.
 
-// The union of both platforms — 32 codes. Type `code` as this union; render verbatim, never
+// The union of both platforms — 33 codes. Type `code` as this union; render verbatim, never
 // rewrite. `fgsStartRefused` is in the iOS enum but never emitted there — do not branch on it.
 //
 // The three `geofence*` codes were Android-only until iOS SDK 1.0.5 added them to its own
@@ -59,6 +59,19 @@ export type ErrorCode =
    *  ceiling. This happens BEFORE the pipeline, so no decision row is written and the message is
    *  the only account there is. */
   | 'fixRejected'
+  // iOS-only (1), as of SDK 1.0.6.
+  /** A `BGTaskScheduler` launch handler could not be installed — either the
+   *  identifier is missing from `BGTaskSchedulerPermittedIdentifiers`, or the registration ran
+   *  after launch had finished. The message distinguishes the two.
+   *
+   *  **Not a tracking failure.** What is lost is the 15-minute background backstop, which has
+   *  always been advisory; the continuous stream and the relaunch primitives do not go through
+   *  `BGTaskScheduler`. In a DEBUG build `ready()` fails outright so the mistake cannot reach a
+   *  release; release builds never fail for it.
+   *
+   *  This package registers the handlers for you in `TrackerLaunch.ready()` — see the iOS
+   *  AppDelegate step in the README. Seeing this code means that call is missing or ran late. */
+  | 'backgroundTasksNotRegistered'
   // Android-only (7)
   | 'playServicesUnavailable'
   | 'notificationHidden'
@@ -81,12 +94,20 @@ export type TrackerResult<T> =
 //   Init · Resume · Burst · NLP Fallback · Impossible Speed · Poor Accuracy ·
 //   Recovery Confirmed · Recovery Reset · Recovery Held · Sigma Gate Outlier ·
 //   Sigma Forced Reset · Sigma Junk Fail · Vehicular · Moving/Walking · Indoor Arrival ·
-//   Bearing Change · Arrival · Stationary Recovery · Blackout Arrival · Walk Arrival ·
-//   15-Min Heartbeat · Origin Set · Departure Held · Drift Suppressed · HeartBeat Skipped ·
-//   Heuristic Gate · Session Closed · Mock Location · Invalid Coordinates · Stale Fix ·
-//   Reboot Boundary · Out Of Order
+//   Bearing Change · Corner Anchor · Arrival · Stationary Recovery · Blackout Arrival ·
+//   Walk Arrival · 15-Min Heartbeat · Origin Set · Departure Held · Drift Suppressed ·
+//   HeartBeat Skipped · Stillness Veto · Accuracy Bridge · Heuristic Gate · Session Closed ·
+//   Mock Location · Invalid Coordinates · Stale Fix · Reboot Boundary · Out Of Order
 //
-// Deliberately still `string`, not a union of those 32: it is the ANDROID vocabulary. The iOS SDK
+// `Accuracy Bridge` is new in Android SDK 1.0.10 and is a STORE reason, not a reject one: the run
+// of unconditional accuracy rejections had gone on long enough (`maxHardRejectRun`, 4) that
+// dropping one more would draw a straight chord across the route, so a coarse-but-reachable fix
+// is admitted instead. A stretch carrying it is genuinely imprecise — distinguishable in the
+// decision log precisely so it is never mistaken for a stretch the device measured well.
+// `Corner Anchor` and `Stillness Veto` were already in 1.0.9 and are listed here for the first
+// time; neither is new behaviour at this pin.
+//
+// Deliberately still `string`, not a union of those 35: it is the ANDROID vocabulary. The iOS SDK
 // documents its own set as equally stable but does not publish it, and `Indoor Arrival` is known
 // to have no iOS counterpart — so closing the union here would make a legitimate iOS reason a type
 // error. Switch on it with a default arm and render whatever arrives.

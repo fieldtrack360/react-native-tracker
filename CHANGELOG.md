@@ -9,6 +9,100 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.12] — 2026-09-08
+
+Pinned native SDKs: iOS **1.0.6** (`b73e640`) · Android **1.0.10**
+
+Both SDKs move, and the iOS one is the reason this release is not optional. iOS `1.0.6` fixes a
+crash that took the whole process down inside `ready()` on every React Native host, and it does so
+by splitting the background-task registration out of `ready()` — so the bridge's launch hook had to
+change with it. Android `1.0.10` is purely additive and brings a diagnostic channel, four config
+fields and two snap bounds — nothing an app that builds against `1.0.11` has to edit.
+
+### Fixed
+
+- **iOS: registering background tasks can no longer end the app.** `TrackerLaunch.ready()` used to
+  call `Tracker.shared.ready(config)` inside a `Task` and nothing else. `ready()` is `async` by
+  necessity — it opens storage, resolves the persisted config and checks the licence — so every
+  `await` in it is a point at which launch can finish first, and a `BGTaskScheduler.register` after
+  launch raises `NSInternalInconsistencyException`. That is an Objective-C exception, not a Swift
+  error: `do`/`catch` could not see it, `try?` could not absorb it, and it unwound through Swift
+  frames into `std::terminate`. Every RN host was exposed, because the bridge module is not built
+  until JavaScript first calls into it.
+
+  `TrackerLaunch.ready()` now calls `Tracker.shared.registerBackgroundTasks()` and
+  `SyncEngine.shared.registerBackgroundTasks()` synchronously first — both resolve nothing, open no
+  database and return immediately — and then does what it did before. **No host code changes**: the
+  AppDelegate line is the same one. A host with its own AppDelegate that does not route through
+  `TrackerLaunch.ready()` must call both itself, as the first statement of
+  `didFinishLaunchingWithOptions`.
+
+### Added
+
+- **`backgroundTasksNotRegistered` joins the `ErrorCode` union (33 values), iOS-only.** Reported
+  when a launch handler could not be installed, with a message that distinguishes the two causes —
+  an identifier missing from `BGTaskSchedulerPermittedIdentifiers`, or a registration that ran after
+  launch. Tracking is unaffected either way; what is lost is the advisory 15-minute backstop. In a
+  DEBUG build `ready()` now fails outright so the mistake cannot reach a release.
+
+- **Session logs — `TrackerSync.android.*`, Android only.** A second diagnostic channel with its
+  own endpoint, its own database file (`fieldtrack-logs-<package>.db`) and its own worker: points
+  answer *where the device was*, this answers *why there is nothing there*. Off by default.
+  `configureLogs(config?)`, `disableLogSync()`, `log()`, `logLifecycle()`, `getLogs()`,
+  `pendingLogCount()`, `syncLogsNow()`, `requestLogSync()`, `logStatus()`, `onLogEvent()`, plus the
+  `LogSyncConfig` / `LogRecord` / `LogSyncResult` / `LogLevel` / `LogType` / `LifecyclePhase` types.
+
+  Called with no argument, `configureLogs()` **follows the points endpoint** — the origin of the
+  `SyncConfig` in force plus `v1/logs/batch`, inheriting its `device_id` and headers. The separate
+  database is what makes a credential failure on the log endpoint structurally unable to reach a
+  stored point. Its failure policy is the deliberate inverse of the points channel in two places: a
+  permanently-rejected batch is dropped rather than retried forever, and a refusal of the channel
+  itself (401/403, or 404/405/501) halts shipping while keeping the buffer. `syncLogsNow()`
+  therefore has its own four cases — `shipped` / `empty` / `retry` / `rejected` — which are NOT
+  `syncNow()`'s four. The iOS SDK has no counterpart, so every method rejects
+  `unsupportedOnPlatform` there.
+
+- **Three Android config fields (Android SDK 1.0.10):** `android.waitForAccurateLocation`,
+  `android.aggressiveOemProfile`, `android.serviceHeartbeatMin` — plus `deliveryStalenessMs`, which
+  is flat rather than namespaced and was already on the wire, but only started doing anything at
+  this pin.
+
+  The first two are the latency-over-battery trade for hardware whose background tracking is *late*
+  rather than absent; `aggressiveOemProfile` is a preset (`maxUpdateDelayMs = 0`,
+  `waitForAccurateLocation = false`, `wakeLockMs` doubled) applied **before** your own keys in the
+  same block, so anything you also send still wins. `serviceHeartbeatMin` is an `AlarmManager`
+  service-revival chain — the one revival path that is not a `WorkManager` job, and therefore the
+  one that still runs on a MIUI/HyperOS app left at *Restricted*, where the others do not run at
+  all. `deliveryStalenessMs` was already on the wire but was read by nothing until this SDK; it is
+  a diagnostic and never a gate, because OS batching makes late delivery the normal case and
+  dropping late fixes is a defect this SDK already fixed once.
+
+- **`TrackOptions.android.snapMaxDetourFactor` / `.snapBridgeFlatM` (Android SDK 1.0.10).** Bounds
+  on the road geometry *injected between* two snapped fixes — a different and larger claim than
+  `snapMaxOffRoadM`'s "may this point be moved onto the road": a wrong point is metres wrong, a
+  wrong span is a confident line down streets nobody drove. Defaults 2.5 and 200 m; `Infinity` on
+  the factor restores the unbounded behaviour. `TrackOptions` is no longer identical on both
+  platforms — iOS has no counterpart to either, and ignores them rather than erroring.
+
+- **`providerChange` gained an optional `previous: ProviderState` (Android only).** The state this
+  one replaced, carried so a host can tell *which* field moved without keeping its own copy: a GPS
+  provider toggle behind an unchanged master switch emits nothing else, and without it that is
+  indistinguishable from a power-save flip. Absent on the first observation after the monitor
+  starts — the initial `ProviderState` is a constructor default rather than anything the device
+  reported — so absent is not "nothing moved".
+
+- **`Accuracy Bridge` joins the Android decision-reason vocabulary** (a *store* reason, not a
+  reject one): a run of unconditional accuracy rejections had gone on long enough that dropping one
+  more would draw a straight chord across the route, so a coarse-but-reachable fix is admitted
+  instead. `Corner Anchor` and `Stillness Veto` were already in `1.0.9` and are documented here for
+  the first time.
+
+### Changed
+
+- Native SDK pins: iOS `1.0.5` → `1.0.6` (`e9000e4` → `b73e640`, all five XCFramework checksums
+  re-recorded). Android `1.0.9-alpha01` → `1.0.10`. The `okhttp-urlconnection` constraint that
+  `1.0.9` added — the fix behind the `1.0.11` release — is still published by `1.0.10`.
+
 ## [1.0.11] — 2026-09-04
 
 Pinned native SDKs: iOS **1.0.5** (`e9000e4`) · Android **1.0.9-alpha01**
@@ -371,6 +465,7 @@ Pinned native SDKs: iOS **1.0.0** · Android **1.0.0**
   activity and provider state, the upload (sync) engine, two native map components
   (`TrackMapView`, `LiveTrackMapView`), permissions, diagnostics, and an Expo config plugin.
 
+[1.0.12]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.11...v1.0.12
 [1.0.11]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.10...v1.0.11
 [1.0.10]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.9...v1.0.10
 [1.0.9]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.8...v1.0.9

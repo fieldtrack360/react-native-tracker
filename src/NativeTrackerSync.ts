@@ -19,6 +19,36 @@ export type SyncResultWire = {
   reason?: string;
 };
 
+// androidSyncLogsNow() — shipped(count) / empty / retry(reason, retryAfterMs?) / rejected(statusCode).
+// A DIFFERENT four-case set from SyncResultWire above: this channel keeps its buffer on a refusal
+// and drops a permanently-rejected batch, which is the inverse of the points channel on both
+// counts. Flat inline for the same codegen reason (no discriminated union in a signature).
+export type LogSyncResultWire = {
+  kind: string;
+  count?: number;
+  reason?: string;
+  retryAfterMs?: number;
+  statusCode?: number;
+};
+
+// One stored log entry. `elapsedRealtimeNanos` crosses as a STRING — it is a monotonic nanosecond
+// stamp and can exceed what a double holds exactly; every other numeric here is small. `data` is
+// the raw JSON string as stored, never a parsed object (codegen has no `any`, and the SDK only
+// checks that it IS a JSON structure — it does not own the shape).
+export type LogRecordWire = {
+  id: string;
+  sessionId: string | null;
+  seq: number;
+  timeMs: number;
+  elapsedRealtimeNanos: string;
+  level: string;
+  type: string;
+  tag: string;
+  code: string | null;
+  message: string;
+  data: string | null;
+};
+
 export interface Spec extends TurboModule {
   // configure(configJson): the whole SyncConfig (shared + ios.* + android.*) crosses as a JSON
   // string; each native mapper reads only its platform's fields. Undecodable JSON — or, on
@@ -60,6 +90,76 @@ export interface Spec extends TurboModule {
   removeListeners(count: number): void;
   subscribeSyncEvents(): Promise<number>;
   unsubscribe(id: number): Promise<void>;
+
+  // ── Session logs — ANDROID ONLY (Android SDK 1.0.10); iOS REJECTS unsupportedOnPlatform ──────
+  // A second channel with its own endpoint, its own database and its own worker. The iOS SDK has
+  // no counterpart at all — not a stub, not an empty implementation — so these are `android*`
+  // prefixed and the iOS module answers every one of them by rejecting, the same shape as the
+  // main module's androidIntegrity()/androidLicenseInfo() family.
+  //
+  // The LogSyncConfig crosses as a JSON string for the same reason SyncConfig does: it is config,
+  // it is nested, and an ABSENT key is not the same as a zero — omitting `url` is what makes the
+  // channel follow the points endpoint, and omitting `nudgeLevel` is not the same as sending null.
+  // Anything LogSyncConfig.validate() reports REJECTS invalidConfig, mirroring configure().
+  androidConfigureLogs(configJson: string): Promise<void>;
+
+  // Stops the channel and cancels its worker. The buffer is NOT wiped — a later
+  // androidConfigureLogs() resumes shipping what is still in it.
+  androidDisableLogSync(): Promise<void>;
+
+  // log(level, tag, message, code?, data?) — one host entry, recorded as type `message`. `data`
+  // must be a JSON structure (object or array) as a STRING; anything else is dropped by the SDK
+  // rather than stored as a bare scalar. Recorded synchronously and forwarded only, so this
+  // resolves without waiting on the database.
+  //
+  // FLAT parameters rather than an options object, here and on androidGetLogs: an object-typed
+  // codegen param generates a JS::NativeTrackerSync::* C++ struct that this module's .mm would
+  // then have to import and unpack for a method whose whole iOS body is a rejection. src/sync.ts
+  // keeps the object shape on the public API and spreads it here.
+  androidLog(
+    level: string,
+    tag: string,
+    message: string,
+    code?: string,
+    data?: string
+  ): Promise<void>;
+
+  // logLifecycle(phase, tag) — the phase vocabulary is the SDK's own (session_start, service_stop,
+  // …); a free string is accepted. `tag` defaults to "Host" when absent.
+  androidLogLifecycle(phase: string, tag?: string): Promise<void>;
+
+  // getLogs(sessionId?, limit?, offset?) → the stored entries, newest-first. Defaults limit 200 /
+  // offset 0; an absent sessionId reads across sessions.
+  androidGetLogs(
+    sessionId?: string,
+    limit?: number,
+    offset?: number
+  ): Promise<LogRecordWire[]>;
+
+  // pendingLogCount() → TrackerResult<number>, wrapped native-side exactly as pendingCount() is.
+  androidPendingLogCount(): Promise<{
+    ok: boolean;
+    value?: number;
+    code?: string;
+    message?: string;
+  }>;
+
+  // syncLogsNow(): drain the log buffer now → the four-case LogSyncResultWire.
+  androidSyncLogsNow(): Promise<LogSyncResultWire>;
+
+  // requestLogSync(): enqueue the log worker. A no-op when the channel was never configured or has
+  // been terminally rejected — it does NOT throw for either.
+  androidRequestLogSync(): Promise<void>;
+
+  // Where diagnostics are going. `endpoint` is null until androidConfigureLogs() has been called,
+  // and `configured` is exactly `endpoint != null` — both are returned so a caller reads the state
+  // it wants without a second round trip.
+  androidLogStatus(): Promise<{ configured: boolean; endpoint?: string }>;
+
+  // The log channel's own event stream (`TrackerSync.logEvents`) — a SEPARATE SharedFlow from the
+  // points stream, carrying this channel's httpResponse exchanges. Rides the SAME device event
+  // "TrackerSyncEmit" and the SAME id space, so `unsubscribe(id)` above cancels either kind.
+  androidSubscribeLogEvents(): Promise<number>;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('TrackerSync');

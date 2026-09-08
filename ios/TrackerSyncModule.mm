@@ -102,6 +102,90 @@
                        onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
+// ── Session logs — ANDROID ONLY (Android SDK 1.0.10) ──────────────────────────
+// The log channel lives in the Android `fieldtrack-sync` artifact and has no iOS counterpart, so
+// every one of these rejects `unsupportedOnPlatform`. Declared here because the codegen protocol
+// is shared: a spec method left unimplemented is a build error on both platforms (D1).
+//
+// All parameters are primitives — the spec deliberately keeps them flat — so this file still needs
+// none of the JS::NativeTrackerSync::* C++ argument structs, and the unused arguments cost nothing.
+#define TRACKER_SYNC_REJECT_ANDROID_ONLY(NAME) \
+  [TrackerSyncImpl rejectAndroidOnly:@#NAME \
+                            onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }]
+
+- (void)androidConfigureLogs:(NSString *)configJson
+                     resolve:(RCTPromiseResolveBlock)resolve
+                      reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidConfigureLogs);
+}
+
+- (void)androidDisableLogSync:(RCTPromiseResolveBlock)resolve
+                       reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidDisableLogSync);
+}
+
+- (void)androidLog:(NSString *)level
+               tag:(NSString *)tag
+           message:(NSString *)message
+              code:(NSString *)code
+              data:(NSString *)data
+           resolve:(RCTPromiseResolveBlock)resolve
+            reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidLog);
+}
+
+- (void)androidLogLifecycle:(NSString *)phase
+                        tag:(NSString *)tag
+                    resolve:(RCTPromiseResolveBlock)resolve
+                     reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidLogLifecycle);
+}
+
+- (void)androidGetLogs:(NSString *)sessionId
+                 limit:(NSNumber *)limit
+                offset:(NSNumber *)offset
+               resolve:(RCTPromiseResolveBlock)resolve
+                reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidGetLogs);
+}
+
+- (void)androidPendingLogCount:(RCTPromiseResolveBlock)resolve
+                        reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidPendingLogCount);
+}
+
+- (void)androidSyncLogsNow:(RCTPromiseResolveBlock)resolve
+                    reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidSyncLogsNow);
+}
+
+- (void)androidRequestLogSync:(RCTPromiseResolveBlock)resolve
+                       reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidRequestLogSync);
+}
+
+- (void)androidLogStatus:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidLogStatus);
+}
+
+- (void)androidSubscribeLogEvents:(RCTPromiseResolveBlock)resolve
+                           reject:(RCTPromiseRejectBlock)reject
+{
+  TRACKER_SYNC_REJECT_ANDROID_ONLY(androidSubscribeLogEvents);
+}
+
+#undef TRACKER_SYNC_REJECT_ANDROID_ONLY
+
 // ── TurboModule plumbing ──────────────────────────────────────────────────────
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
     (const facebook::react::ObjCTurboModule::InitParams &)params

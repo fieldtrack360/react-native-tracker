@@ -103,6 +103,167 @@ class TrackerSyncModule(reactContext: ReactApplicationContext) :
     }
   }
 
+  // ── Session logs (Android SDK 1.0.10) ────────────────────────────────────────
+  // The SECOND channel on this facade — its own endpoint, its own database file, its own worker.
+  // ANDROID-ONLY: the iOS SDK has no counterpart, so the iOS module answers every one of these
+  // with `unsupportedOnPlatform`. Surface it drives:
+  //   configureLogs(LogSyncConfig, SyncTransport?)  requestLogSync()      disableLogSync()
+  //   log(level, tag, message, code?, data?)        logLifecycle(phase, tag)
+  //   getLogs(sessionId?, limit, offset)            pendingLogCount()     syncLogsNow()
+  //   logEvents: SharedFlow<SyncEvent>              logEndpoint / isLogSyncConfigured
+  //
+  // Nothing here can reach Tracker.stop(), the point queue, or a row of track_point — the buffer
+  // is a different database, which is the whole reason the channel is safe to point at a separate
+  // endpoint with separate credentials.
+
+  // androidConfigureLogs(configJson). The LogSyncConfig crosses as a JSON string. An ABSENT url is
+  // meaningful and is the intended default — configureLogs() then resolves the endpoint from the
+  // points SyncConfig in force plus `v1/logs/batch` and inherits its device_id and headers — so
+  // the mapper never substitutes one. `configureLogs` is synchronous on the facade and THROWS
+  // IllegalArgumentException on anything LogSyncConfig.validate() reports, which is the host's own
+  // bad argument: reject invalidConfig, exactly as configure() does.
+  override fun androidConfigureLogs(configJson: String, promise: Promise) {
+    val config = try {
+      SyncMappers.logSyncConfigFromWire(configJson)
+    } catch (t: Throwable) {
+      promise.reject("invalidConfig", t.message ?: "invalid log sync config JSON", t)
+      return
+    }
+    try {
+      sync.configureLogs(config)
+      promise.resolve(null)
+    } catch (t: IllegalArgumentException) {
+      promise.reject("invalidConfig", t.message ?: "invalid log sync config", t)
+    } catch (t: Throwable) {
+      promise.reject("internalError", t.message ?: "configureLogs failed", t)
+    }
+  }
+
+  // androidDisableLogSync() — stops shipping and cancels the worker. The buffer is NOT wiped, so a
+  // later androidConfigureLogs() resumes with what is still in it. That is also the recovery path
+  // from a terminal `rejected` result.
+  override fun androidDisableLogSync(promise: Promise) {
+    try {
+      sync.disableLogSync()
+      promise.resolve(null)
+    } catch (t: Throwable) {
+      promise.reject("internalError", t.message ?: "disableLogSync failed", t)
+    }
+  }
+
+  // androidLog(entry) — one host entry, recorded as type MESSAGE. `level` is the wire vocabulary;
+  // an unrecognised one is the host's own bad argument and rejects rather than being silently
+  // downgraded to INFO, because a level that does not mean what the caller wrote is a filtering
+  // decision made behind their back. `code`/`data` are optional and stay null when absent.
+  override fun androidLog(
+    level: String,
+    tag: String,
+    message: String,
+    code: String?,
+    data: String?,
+    promise: Promise,
+  ) {
+    val parsed = SyncMappers.logLevel(level)
+    if (parsed == null) {
+      promise.reject("invalidConfig", "log level must be one of debug/info/warn/error, got '$level'")
+      return
+    }
+    try {
+      sync.log(level = parsed, tag = tag, message = message, code = code, data = data)
+      promise.resolve(null)
+    } catch (t: Throwable) {
+      promise.reject("internalError", t.message ?: "log failed", t)
+    }
+  }
+
+  // androidLogLifecycle(phase, tag). `tag` defaults to the SDK's own "Host" when JS omits it.
+  override fun androidLogLifecycle(phase: String, tag: String?, promise: Promise) {
+    try {
+      sync.logLifecycle(phase, tag ?: "Host")
+      promise.resolve(null)
+    } catch (t: Throwable) {
+      promise.reject("internalError", t.message ?: "logLifecycle failed", t)
+    }
+  }
+
+  // androidGetLogs(sessionId?, limit?, offset?) — suspend read on the module scope. The SDK's own
+  // defaults (limit 200 / offset 0) are restated here because getLogs is @JvmOverloads rather than
+  // a builder: there is no way to say "leave this one alone" through a positional call.
+  override fun androidGetLogs(
+    sessionId: String?,
+    limit: Double?,
+    offset: Double?,
+    promise: Promise,
+  ) {
+    val resolvedLimit = limit?.toInt() ?: DEFAULT_LOG_LIMIT
+    val resolvedOffset = offset?.toInt() ?: 0
+    scope.launch {
+      try {
+        val records = sync.getLogs(sessionId, resolvedLimit, resolvedOffset)
+        promise.resolve(Arguments.createArray().apply {
+          records.forEach { pushMap(SyncMappers.logRecordMap(it)) }
+        })
+      } catch (t: Throwable) {
+        promise.reject("internalError", t.message ?: "getLogs failed", t)
+      }
+    }
+  }
+
+  // androidPendingLogCount() -> TrackerResult<number>, wrapped exactly as pendingCount() is. A
+  // DIFFERENT queue in a DIFFERENT database from pendingCount() — the two numbers are unrelated.
+  override fun androidPendingLogCount(promise: Promise) {
+    scope.launch {
+      try {
+        val count = sync.pendingLogCount()
+        promise.resolve(Arguments.createMap().apply {
+          putBoolean("ok", true)
+          putInt("value", count)
+        })
+      } catch (t: Throwable) {
+        promise.reject("internalError", t.message ?: "pendingLogCount failed", t)
+      }
+    }
+  }
+
+  // androidSyncLogsNow() — drain now → shipped / empty / retry / rejected. See
+  // SyncMappers.logSyncResultMap for why these are not the points channel's four.
+  override fun androidSyncLogsNow(promise: Promise) {
+    scope.launch {
+      try {
+        promise.resolve(SyncMappers.logSyncResultMap(sync.syncLogsNow()))
+      } catch (t: Throwable) {
+        promise.reject("internalError", t.message ?: "syncLogsNow failed", t)
+      }
+    }
+  }
+
+  // androidRequestLogSync() — enqueue the log worker. The facade RETURNS EARLY rather than throwing
+  // when the channel was never configured or has been terminally rejected, so this resolves in both
+  // cases; `androidLogStatus()` is how a host asks whether it is on.
+  override fun androidRequestLogSync(promise: Promise) {
+    try {
+      sync.requestLogSync()
+      promise.resolve(null)
+    } catch (t: Throwable) {
+      promise.reject("internalError", t.message ?: "requestLogSync failed", t)
+    }
+  }
+
+  // androidLogStatus() -> { configured, endpoint? }. Both are read from the same source natively
+  // (`isLogSyncConfigured` IS `logEndpoint != null`), returned together so a caller never needs a
+  // second round trip to tell "off" from "on, to here".
+  override fun androidLogStatus(promise: Promise) {
+    try {
+      val endpoint = sync.logEndpoint
+      promise.resolve(Arguments.createMap().apply {
+        putBoolean("configured", sync.isLogSyncConfigured)
+        if (endpoint == null) putNull("endpoint") else putString("endpoint", endpoint)
+      })
+    } catch (t: Throwable) {
+      promise.reject("internalError", t.message ?: "logStatus failed", t)
+    }
+  }
+
   // ── onSyncEvent subscription layer ───────────────────────────────────────────
   // The same shape as TrackerEventsHelper, kept local because this module has exactly one stream and
   // a distinct device event name: ONE Job per active JS subscriber on the module scope,
@@ -125,6 +286,18 @@ class TrackerSyncModule(reactContext: ReactApplicationContext) :
     jobs[id] = scope.launch {
       // A null map is a native event with no place in the JS vocabulary — see syncEventMap.
       sync.events.collect { event -> SyncMappers.syncEventMap(event)?.let { emit(id, it) } }
+    }
+    promise.resolve(id)
+  }
+
+  // androidSubscribeLogEvents() — the LOG channel's own SharedFlow, a different stream from
+  // `sync.events` above carrying this channel's HTTP exchanges. Shares the id space and the
+  // "TrackerSyncEmit" device event with the points stream, so `unsubscribe(id)` ends either kind
+  // and invalidate() takes both down with the scope.
+  override fun androidSubscribeLogEvents(promise: Promise) {
+    val id = nextSubscriptionId.getAndIncrement()
+    jobs[id] = scope.launch {
+      sync.logEvents.collect { event -> SyncMappers.syncEventMap(event)?.let { emit(id, it) } }
     }
     promise.resolve(id)
   }
@@ -156,5 +329,9 @@ class TrackerSyncModule(reactContext: ReactApplicationContext) :
 
   companion object {
     const val NAME = NativeTrackerSyncSpec.NAME
+
+    // The SDK's own getLogs default, restated because @JvmOverloads leaves no way to skip one
+    // positional argument while supplying a later one.
+    private const val DEFAULT_LOG_LIMIT = 200
   }
 }

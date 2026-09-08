@@ -60,6 +60,7 @@ type TrackOptionsWire = {
   speedBandsKmph?: number[];
   arrowMinSegmentM?: number;
   simplifyEpsilonM?: number;
+  android?: { snapMaxDetourFactor?: number; snapBridgeFlatM?: number };
 };
 
 type TrackFixWire = {

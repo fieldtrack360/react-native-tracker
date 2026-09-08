@@ -112,6 +112,17 @@ fun TrackerMappers.trackOptions(map: ReadableMap?): TrackOptions {
   if (map.hasKey("simplifyEpsilonM")) {
     options = options.copy(simplifyEpsilonM = map.getDouble("simplifyEpsilonM"))
   }
+  // Android-only snap bounds (SDK 1.0.10), namespaced because the iOS TrackOptions has no
+  // counterpart to either. `Infinity` is a legal value for the factor — it restores the unbounded
+  // pre-1.0.10 behaviour — so the value is passed through untouched rather than validated here.
+  map.getMap("android")?.let { block ->
+    if (block.hasKey("snapMaxDetourFactor")) {
+      options = options.copy(snapMaxDetourFactor = block.getDouble("snapMaxDetourFactor"))
+    }
+    if (block.hasKey("snapBridgeFlatM")) {
+      options = options.copy(snapBridgeFlatM = block.getDouble("snapBridgeFlatM"))
+    }
+  }
   return options
 }
 
@@ -218,6 +229,15 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
   }
   // Android-only geolocation fields, namespaced on the wire.
   android?.let { block ->
+    // FIRST, so the individual keys below still win — the SDK's own Builder carries the same
+    // "call it before your own overrides" rule. This is the geolocation half of
+    // `aggressiveOemProfile()`; the `wakeLockMs` half is applied in the service block.
+    if (block.optBoolean("aggressiveOemProfile")) {
+      geolocation = geolocation.copy(maxUpdateDelayMs = 0, waitForAccurateLocation = false)
+    }
+    if (block.has("waitForAccurateLocation")) {
+      geolocation = geolocation.copy(waitForAccurateLocation = block.optBoolean("waitForAccurateLocation"))
+    }
     if (block.has("providerType")) {
       providerType(block.optString("providerType"))?.let { geolocation = geolocation.copy(providerType = it) }
     }
@@ -368,6 +388,12 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
     service = service.copy(deadTrackerStationaryMin = root.optInt("deadTrackerStationaryMin"))
   }
   android?.let { block ->
+    // The `wakeLockMs` half of `aggressiveOemProfile()` — doubled off whatever the SDK default or
+    // a persisted config already holds, and applied BEFORE the explicit `wakeLockMs` key so a host
+    // that sends both gets its own number rather than twice it.
+    if (block.optBoolean("aggressiveOemProfile")) {
+      service = service.copy(wakeLockMs = service.wakeLockMs * 2)
+    }
     if (block.has("foregroundService")) {
       service = service.copy(foregroundService = block.optBoolean("foregroundService"))
     }
@@ -385,6 +411,9 @@ fun TrackerMappers.decodeConfig(json: String): TrackerConfig {
     }
     if (block.has("wakeLockMs")) {
       service = service.copy(wakeLockMs = block.optLong("wakeLockMs"))
+    }
+    if (block.has("serviceHeartbeatMin")) {
+      service = service.copy(serviceHeartbeatMin = block.optInt("serviceHeartbeatMin"))
     }
     if (block.has("notificationTitle")) {
       service = service.copy(notificationTitle = block.optString("notificationTitle"))
