@@ -1,6 +1,6 @@
 {
   "name": "@fieldtrack360/react-native-tracker",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Location Tracking SDK for React Native",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -191,7 +191,7 @@
     "version": "0.63.0"
   },
   "tracker": {
-    "android": "1.0.10",
+    "android": "1.0.10-alpha01",
     "ios": {
       "tag": "1.0.6",
       "commit": "b73e640c205ba2f68b317b3d8f99774b7657473d",
