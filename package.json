@@ -1,6 +1,6 @@
 {
   "name": "@fieldtrack360/react-native-tracker",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Location Tracking SDK for React Native",
   "main": "./lib/module/index.js",
   "types": "./lib/typescript/src/index.d.ts",
@@ -191,17 +191,17 @@
     "version": "0.63.0"
   },
   "tracker": {
-    "android": "1.0.10-alpha01",
+    "android": "1.0.10-alpha04",
     "ios": {
-      "tag": "1.0.6",
-      "commit": "b73e640c205ba2f68b317b3d8f99774b7657473d",
+      "tag": "1.0.7",
+      "commit": "6353828f1a718387981bc69893be738ced0f4028",
       "checksumRule": "per XCFramework: sha256 over the manifest of every regular file under the framework, sorted by POSIX-relative path, each entry <relpath>\\0<sha256(file)>\\0 (see scripts/fetch-ios-frameworks.js digestXcframework)",
       "checksums": {
-        "TrackerGeo.xcframework": "46b45c7fae3c6c34e1f16bfb7272bca833b3d83830fb736978d9f1f9e673d55a",
-        "TrackerCore.xcframework": "43a5b32e26be3452b7e4c082006c895384b43d3da2cf6562d7b2b66f51eea134",
-        "TrackerMaps.xcframework": "af646bcdc4e63ca5657edb54935d035ba500fcfffad0aecba436b59d0eeec6b9",
-        "TrackerSnap.xcframework": "b16068a9d600a1dd2d80980953979644a86db0bbd99964210e24c31b023fe8c0",
-        "TrackerSync.xcframework": "3828035b0b62dc939a1c4ca1bcaeb82fa39a05c0985f9e8cdce70161a4a62865"
+        "TrackerGeo.xcframework": "3611857f6ac62ba87e8ebc97388002a02d01f9c71bd20550ad9d168dbb715375",
+        "TrackerCore.xcframework": "e8b64533e021af7ec468ad63c8f4ed6576b53411e3e3a2d3f0d3e6257edd4163",
+        "TrackerMaps.xcframework": "d2a4b5b0cf5e69bec14be2da022369223c5ff85338b39f8f26c7d5cf444be54f",
+        "TrackerSnap.xcframework": "e45a873e5243f2fea6cff0278667e13015a668abd450e656e1bfd31cf322af66",
+        "TrackerSync.xcframework": "caed73ff0890a3927b944ce6d6c9d99d7cf2f6d1b923eb88679617a4e34f4ae9"
       }
     }
   }

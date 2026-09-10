@@ -54,7 +54,7 @@ map rendering, and an upload (sync) engine.
 | | Minimum | Notes |
 |---|---|---|
 | React Native | **0.81+** with New Architecture enabled | Developed and verified against RN **0.87** |
-| Node | 22+ (`.nvmrc` pins v24) | Needed for the iOS framework fetch on install |
+| Node | 22+ | Needed for the iOS framework fetch on install |
 | iOS | **17.0** | The vendored XCFrameworks target `arm64-apple-ios17.0` and are not weak-linked |
 | Xcode / CocoaPods | Xcode 26+, CocoaPods 1.15+ | |
 | Android | **minSdk 26**, **compileSdk 36**, target 36 | The config plugin raises `minSdkVersion`/`compileSdkVersion` for you; it never lowers them |
@@ -276,8 +276,7 @@ Tracker is licensed software. Read the enforcement table below before you build 
 
 ### Getting a licence
 
-Buy one at **<https://fieldtrack360-sdk.devstree.in/>**, which also has a free trial for
-evaluating first. Plans and prices live there; two things about a key change how you wire this
+Buy one at **<https://sdk.fieldtrack360.com/>**. Plans and prices live there; two things about a key change how you wire this
 package up:
 
 - **One key covers both platforms**, so you supply exactly one token — which is why there is a single `license` field.
@@ -306,7 +305,7 @@ wins over a stale one left on disk.
 
 > **Token prefix.** Tokens are currently issued with a **`TRACKIT-`** prefix. If a token you were
 > issued starts with anything else, check it against what
-> [the licence portal](https://fieldtrack360-sdk.devstree.in/) gave you before you cut a release.
+> [the licence portal](https://sdk.fieldtrack360.com/) gave you before you cut a release.
 
 ### What actually gets enforced
 
@@ -1064,7 +1063,8 @@ await TrackerSync.configure({
   autoSync: true,
   batchSize: 200,
   ios: { requiresNetworkConnectivity: true, backoffInitialSec: 5, backoffCeilingSec: 300 },
-  android: { requiresUnmeteredNetwork: false },   // NOT the same policy as the iOS gate
+  // syncLogs defaults to TRUE — configure() also sets up the session-log channel. See below.
+  android: { requiresUnmeteredNetwork: false, syncLogs: true },   // the gate is NOT the iOS policy
 });
 
 // Call after accepted points or at an app checkpoint even with autoSync on — Android does not
@@ -1146,14 +1146,24 @@ deprecated alias for the same function.
 ### Session logs — Android only
 
 Points answer *where the device was*. Session logs answer *why there is nothing there*. New at the
-Android **1.0.10** pin, off by default, and reached through `TrackerSync.android.*` — the iOS SDK
-has no counterpart, so every method here rejects `unsupportedOnPlatform` on iOS.
+Android **1.0.10** pin and reached through `TrackerSync.android.*` — the iOS SDK has no counterpart,
+so every method here rejects `unsupportedOnPlatform` on iOS.
+
+> **On by default since Android SDK 1.0.10-alpha02.** `TrackerSync.configure()` now derives a
+> log channel by itself — the origin of your points `url` plus `v1/logs/batch`, inheriting
+> `device_id` from `extraParams` and reusing the points headers — and it also records the SDK's own
+> internal log output, in release builds too. **A backend serving points should expect log traffic
+> from any host that has not opted out.** Opt out with `android: { syncLogs: false }` on the points
+> config. Deriving the channel is never fatal to points: if it cannot be built (no `device_id`, an
+> unparseable url) the SDK logs why and points are unaffected.
 
 ```ts
 import { TrackerSync } from '@fieldtrack360/react-native-tracker';
 
-// Follows the points endpoint: the origin of the SyncConfig already in force plus
-// `v1/logs/batch`, inheriting device_id and headers. That is the intended use.
+// Optional since Android SDK 1.0.10-alpha02 — configure() already derived this exact channel.
+// Call it to override the derived default: a different endpoint, credential, level or interval.
+// An explicit call wins PERMANENTLY; later configure() calls leave it alone rather than
+// re-deriving over it. Unlike the derived default it rejects an invalid config.
 await TrackerSync.android.configureLogs();
 
 await TrackerSync.android.log({
@@ -1199,6 +1209,21 @@ monotonic nanosecond stamp passes what a JS number holds exactly after about 104
 
 `TrackerSync.android.onLogEvent(cb)` is this channel's own stream, separate from `onSyncEvent`.
 Only `httpResponse` arrives, as on the points stream.
+
+**The SDK writes entries of its own**, without a `log()` call from you. Two are lifecycle entries
+worth knowing about, because they are what answer "this device never records anything":
+
+- `'device_location'` — the device's location permissions and providers, on **every start attempt**.
+  A `start()` refused at the permission gate opens no session, so this one is filed against the
+  device with a **null `sessionId`**. It is `'warn'` whenever the state would stop or degrade
+  tracking, so it survives the default `level: 'info'`. A granted start writes one line per session;
+  a refused start writes every time.
+- `'device_motion'` — the device's motion hardware, once per session. It explains a gap *inside* a
+  session, where `'device_location'` explains a session that never opened.
+
+Beyond those, the SDK's own internal log output is recorded too. **In a release build that is its
+warnings only** — the per-fix commentary is compiled out of the release artifact, so `level: 'debug'`
+does not resurrect it there.
 
 Server contract: `v1/logs/batch`, documented in the Android SDK's `docs/APP-LOG-API.md`.
 
@@ -1362,14 +1387,15 @@ one.
 | `ios.onSyncEvent(cb)` | `(e: SyncEvent) => void` | `() => void` | **Deprecated** alias for `onSyncEvent` |
 
 Session logs — **Android only**, Android SDK 1.0.10. Every one of these rejects
-`unsupportedOnPlatform` on iOS.
+`unsupportedOnPlatform` on iOS. Since Android SDK 1.0.10-alpha02 the channel is set up by
+`TrackerSync.configure()` itself unless `android.syncLogs` is `false`.
 
 | Method | Parameters | Returns | Notes |
 |---|---|---|---|
-| `android.configureLogs(config?)` | `LogSyncConfig` | `Promise<void>` | With no argument, follows the points endpoint (`v1/logs/batch`) and inherits its `device_id` and headers. Rejects `invalidConfig` on bad JSON or a failed `LogSyncConfig.validate()` |
+| `android.configureLogs(config?)` | `LogSyncConfig` | `Promise<void>` | Overrides the channel `configure()` derived, and wins permanently over later `configure()` calls. With no argument, follows the points endpoint (`v1/logs/batch`) and inherits its `device_id` and headers. Rejects `invalidConfig` on bad JSON or a failed `LogSyncConfig.validate()` |
 | `android.disableLogSync()` | — | `Promise<void>` | Stops shipping, cancels the worker; the buffer is kept |
 | `android.log(entry)` | `{ level, tag, message, code?, data? }` | `Promise<void>` | `data` must be a JSON structure as a string. An entry at `nudgeLevel` or worse asks for a drain immediately |
-| `android.logLifecycle(phase, tag?)` | `LifecyclePhase \| string`, `string` | `Promise<void>` | `tag` defaults to `"Host"` |
+| `android.logLifecycle(phase, tag?)` | `LifecyclePhase \| string`, `string` | `Promise<void>` | `tag` defaults to `"Host"`. `'device_location'` and `'device_motion'` are written by the SDK itself — don't send them |
 | `android.getLogs(opts?)` | `{ sessionId?, limit?, offset? }` | `Promise<LogRecord[]>` | Newest-first; defaults limit 200 / offset 0 |
 | `android.pendingLogCount()` | — | `Promise<TrackerResult<number>>` | A different queue from `pendingCount()` — the two numbers are unrelated |
 | `android.syncLogsNow()` | — | `Promise<LogSyncResult>` | `shipped` / `empty` / `retry` / `rejected` — **not** the points channel's four |
@@ -1513,7 +1539,8 @@ type SyncConfig = {
   extraParams?: Record<string, SyncParamValue>;   // merged into the top level of the request body
   ios?: { requiresNetworkConnectivity?: boolean; wipeOnAuthExpiry?: boolean; stopTrackingOnAuthExpiry?: boolean;
           backoffInitialSec?: number; backoffCeilingSec?: number; autoSyncCoalesceSec?: number };
-  android?: { requiresUnmeteredNetwork?: boolean };   // the two network gates are NOT the same field
+  android?: { requiresUnmeteredNetwork?: boolean;   // the two network gates are NOT the same field
+              syncLogs?: boolean };                  // default TRUE — configure() derives the log channel
 };
 ```
 

@@ -9,6 +9,79 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.14] — 2026-09-10
+
+Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha04**
+
+Both pins move. The Android one is the reason to read this: session logs are now **on by default**,
+so a host that configures points and does nothing else starts uploading a diagnostic stream to a
+second endpoint. One field is added to turn that off. The iOS change is a hostname and touches no
+API.
+
+### Added
+
+- **`SyncConfig.android.syncLogs`** (default `true`), bridged to the Android SDK's new
+  `SyncConfig.Builder.syncLogs(Boolean)`. Set it `false` to configure points with no log channel.
+  Written to the builder only when the key is present on the wire, so an omitted value keeps the
+  SDK's own default rather than one restated in the mapper. Android only — the iOS SDK has no
+  session-log channel, so the field sits in the `android` block like the network gate.
+
+- **Two SDK-written phases added to the `LifecyclePhase` union**, which had drifted from the SDK's
+  own list. Neither is something a host passes to `logLifecycle()`; both arrive on `LogRecord`.
+  - `'device_location'` (Android SDK `1.0.10-alpha04`) — the device's location permissions and
+    providers, written on every start **attempt**. A `start()` refused at the permission gate opens
+    no session, so this entry is filed against the device with a **null `sessionId`**, which is what
+    makes "this phone never tracks" produce evidence at all. Level is `warn` whenever the state
+    would stop or degrade tracking (permission missing or foreground-only, location services off,
+    approximate accuracy, GPS off) so it survives the default `level: 'info'` on a fleet, and `info`
+    otherwise. A granted start writes one line per session; a refused start writes every time, on
+    purpose — three refusals in ten seconds is a user tapping Start against a permission that was
+    never granted.
+  - `'device_motion'` (Android SDK `1.0.10`) — the device's motion hardware, once per session. It
+    explains a gap *inside* a session, where `'device_location'` explains a session that never
+    opened. Present in the SDK since the `1.0.10` pin and missed by the union then.
+
+### Changed
+
+- **Android: the session-log channel is set up by `TrackerSync.configure()` itself.** It was
+  opt-in through `TrackerSync.android.configureLogs()`; from Android SDK `1.0.10-alpha02` `configure()`
+  derives the same channel — the origin of the points `url` plus `v1/logs/batch`, inheriting
+  `device_id` from `extraParams` and reusing the points headers — unless `android.syncLogs` is
+  `false`. **A backend serving points should expect log traffic from any host on this release that
+  has not opted out.** Nothing in an app has to change to keep working; what changes is what the
+  network does by default.
+
+  Deriving the channel cannot fail a points config. With no `device_id` or an unparseable url the
+  SDK logs why under `Tracker/TrackerSync` and points continue unaffected.
+
+- **Android: `configureLogs()` is now an override, not the setup step, and it wins permanently.**
+  Once called, later `configure()` calls leave the channel alone instead of re-deriving over it.
+  Call it for a different endpoint, credential, `level` or interval. Unlike the derived default it
+  still rejects an invalid config as `invalidConfig`.
+
+- **Android: the SDK's own internal log output is recorded into the buffer**, with no `log()` call
+  from JS — the licence verdict, a provider that went quiet, a worker that gave up.
+  `LogSyncConfig.level` still decides what is kept: at the default `'info'` the SDK's warnings are
+  kept and its commentary is not, and on a **debug** build `'debug'` captures everything, at several
+  lines per fix.
+
+  **In a release build only the warnings are available**, which is the slice that matters — the
+  incident is never on a debug build. The SDK splits its own logging in two at `1.0.10-alpha04`:
+  warnings ship in the release AAR and can be recorded there, while the per-fix commentary stays
+  compiled out and is reachable only from a debug build. Setting `level: 'debug'` on a release build
+  therefore does not resurrect it. (`1.0.10-alpha02` tried to keep everything and could not be
+  published: retaining the strings tripped the SDK's own `verifyReleaseObfuscation` gate.)
+
+- **iOS: the licence revocation check moves to `https://sdk.fieldtrack360.com/api/v1/verify`**, from
+  `https://fieldtrack360-sdk.devstree.in/api/v1/verify`. The endpoint is a build constant in the SDK
+  and was never configurable, so no app code changes. The response signing key is unchanged and
+  still pinned in the binary, and the offline gate in `ready()` — the thing that actually licenses
+  the app — is untouched. The check remains fail-open, so a host that cannot reach the new name
+  keeps tracking. README's licence-portal links move to the same host.
+
+- Native SDK pins: iOS `1.0.6` → `1.0.7` (`b73e640` → `6353828`, all five XCFramework checksums
+  re-recorded). Android `1.0.10-alpha01` → `1.0.10-alpha04`.
+
 ## [1.0.13] — 2026-09-09
 
 Pinned native SDKs: iOS **1.0.6** (`b73e640`) · Android **1.0.10-alpha01**
@@ -476,6 +549,7 @@ Pinned native SDKs: iOS **1.0.0** · Android **1.0.0**
   activity and provider state, the upload (sync) engine, two native map components
   (`TrackMapView`, `LiveTrackMapView`), permissions, diagnostics, and an Expo config plugin.
 
+[1.0.14]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.13...v1.0.14
 [1.0.13]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.12...v1.0.13
 [1.0.12]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.11...v1.0.12
 [1.0.11]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.10...v1.0.11

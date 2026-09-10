@@ -59,6 +59,16 @@ export type SyncConfig = {
      *  a server that does not expect it answers 400 or stores the compressed bytes as the payload.
      *  Turn it on only once the endpoint is known to decompress. */
     gzipRequestBody?: boolean;
+    /** Whether `configure()` also sets up the session-log channel. Default TRUE as of Android SDK
+     *  1.0.10-alpha02 — omitting it does NOT mean off. The derived channel takes the origin of this
+     *  config's `url` plus `v1/logs/batch`, inherits `device_id` from `extraParams` and reuses these
+     *  headers, and it also records the SDK's OWN internal log output, in release builds too.
+     *  Set `false` to configure points with no log channel at all. Deriving one is never fatal: if
+     *  it cannot be built — no `device_id`, an unparseable url — the SDK logs why and points are
+     *  unaffected. An explicit `android.configureLogs()` wins permanently over the derived default.
+     *
+     *  Android only. iOS has no session-log channel. */
+    syncLogs?: boolean;
     /** Permit an `http://` url. Default false. Android blocks cleartext from API 28, so without
      *  this an `http://` endpoint is accepted here and then fails at runtime as an ordinary network
      *  error — retried forever, on battery, with nothing in the logs naming the cause. Loopback
@@ -118,7 +128,17 @@ export type LifecyclePhase =
   | 'service_stop'
   | 'process_start'
   | 'boot_completed'
-  | 'config_changed';
+  | 'config_changed'
+  /** Written by the SDK itself, not by a host. The device's motion hardware, once per session —
+   *  what explains a gap INSIDE a session. Android SDK 1.0.10. */
+  | 'device_motion'
+  /** Written by the SDK itself, not by a host. The device's location permissions and providers, on
+   *  every start ATTEMPT — including a start refused at the permission gate, which opens no session
+   *  and is therefore filed against the device with a null `sessionId`. `warn` whenever the state
+   *  would stop or degrade tracking, so it survives the default `level: 'info'`. A granted start
+   *  writes one line per session; a refused start writes every time. Android SDK
+   *  1.0.10-alpha04. */
+  | 'device_location';
 
 export type LogSyncConfig = {
   /** Absolute log endpoint. **Omit it and the channel FOLLOWS the points endpoint** — the origin

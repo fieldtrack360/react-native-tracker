@@ -73,6 +73,9 @@ object SyncMappers {
       }
       if (a.has("gzipRequestBody")) b.gzipRequestBody(a.getBoolean("gzipRequestBody"))
       if (a.has("allowCleartext")) b.allowCleartext(a.getBoolean("allowCleartext"))
+      // syncLogs: the SDK default is TRUE, so configure() derives a log channel unless this says
+      // otherwise. Omitted here means omitted from the builder, which keeps that default.
+      if (a.has("syncLogs")) b.syncLogs(a.getBoolean("syncLogs"))
       // timeouts: partial objects are supported, so each leg falls back to the SDK's own default
       // rather than to a number written here.
       a.optJSONObject("timeouts")?.let { t ->
