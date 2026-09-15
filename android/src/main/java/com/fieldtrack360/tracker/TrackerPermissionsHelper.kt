@@ -94,8 +94,55 @@ object TrackerPermissions {
     }
   }
 
-  fun openAppSettings(module: TrackerModule, promise: Promise) {
-    val intent = pmOf(module).appSettingsIntent()
+  fun openAppSettings(module: TrackerModule, promise: Promise) =
+    launch(module, pmOf(module).appSettingsIntent(), "openAppSettings", promise)
+
+  // ---- Battery optimisation (Android SDK 1.0.10-alpha06) ----
+
+  // BackgroundRestrictions → wire. `degraded` is the SDK's own verdict and is carried across rather
+  // than recomputed in JS, so the bucket thresholds live in one place.
+  fun getBackgroundRestrictions(module: TrackerModule, promise: Promise) {
+    val r = pmOf(module).backgroundRestrictions()
+    promise.resolve(Arguments.createMap().apply {
+      putBoolean("ignoringBatteryOptimizations", r.ignoringBatteryOptimizations)
+      putBoolean("backgroundRestricted", r.backgroundRestricted)
+      val bucket = r.standbyBucket
+      if (bucket != null) putInt("standbyBucket", bucket) else putNull("standbyBucket")
+      putBoolean("degraded", r.degraded)
+    })
+  }
+
+  fun openBatteryOptimizationSettings(module: TrackerModule, promise: Promise) =
+    launch(
+      module,
+      pmOf(module).batteryOptimizationSettingsIntent(),
+      "openBatteryOptimizationSettings",
+      promise
+    )
+
+  // Null intent = the host manifest does not declare REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, or the
+  // exemption is already held. Resolve false and launch nothing: starting the request undeclared
+  // throws on some OEMs and silently does nothing on others, which is what the SDK's null prevents.
+  fun requestBatteryOptimizationExemption(module: TrackerModule, promise: Promise) {
+    val intent = pmOf(module).batteryExemptionRequestIntent()
+    if (intent == null) {
+      promise.resolve(false)
+      return
+    }
+    launch(module, intent, "requestBatteryOptimizationExemption", promise)
+  }
+
+  // ---- iOS-only → reject on Android ----
+
+  fun iosOnly(method: String, promise: Promise) {
+    promise.reject("unsupportedOnPlatform", "$method is iOS-only; not available on Android")
+  }
+
+  // ---- Internals ----
+
+  // Settings-style intents: from the current Activity when there is one (better Back behaviour),
+  // otherwise from the application context with NEW_TASK. Resolves true once started.
+  private fun launch(module: TrackerModule, intent: Intent, method: String, promise: Promise) {
     UiThreadUtil.runOnUiThread {
       try {
         val activity = module.appContext.currentActivity
@@ -106,18 +153,10 @@ object TrackerPermissions {
         }
         promise.resolve(true)
       } catch (t: Throwable) {
-        promise.reject("internalError", t.message ?: "openAppSettings failed", t)
+        promise.reject("internalError", t.message ?: "$method failed", t)
       }
     }
   }
-
-  // ---- iOS-only → reject on Android ----
-
-  fun iosOnly(method: String, promise: Promise) {
-    promise.reject("unsupportedOnPlatform", "$method is iOS-only; not available on Android")
-  }
-
-  // ---- Internals ----
 
   // Requesting needs an Activity; JS has none, so we drive the SDK's own arrays through a
   // PermissionListener on the current Activity. Empty array = nothing to ask (e.g. notifications

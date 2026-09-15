@@ -453,6 +453,27 @@ static NSDictionary *RCTTrackerTrackOptionsDict(JS::NativeTracker::TrackOptionsW
                                           onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
+- (void)androidGetBackgroundRestrictions:(RCTPromiseResolveBlock)resolve
+                                  reject:(RCTPromiseRejectBlock)reject
+{
+  [TrackerImpl androidGetBackgroundRestrictionsOnResolve:^(NSDictionary *v) { resolve(v); }
+                                                onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+}
+
+- (void)androidOpenBatteryOptimizationSettings:(RCTPromiseResolveBlock)resolve
+                                        reject:(RCTPromiseRejectBlock)reject
+{
+  [TrackerImpl androidOpenBatteryOptimizationSettingsOnResolve:^(NSNumber *v) { resolve(v); }
+                                                      onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+}
+
+- (void)androidRequestBatteryOptimizationExemption:(RCTPromiseResolveBlock)resolve
+                                            reject:(RCTPromiseRejectBlock)reject
+{
+  [TrackerImpl androidRequestBatteryOptimizationExemptionOnResolve:^(NSNumber *v) { resolve(v); }
+                                                          onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+}
+
 // ── Geofencing ────────────────────────────────────────────────────────────────
 - (void)geofenceAdd:(JS::NativeTracker::GeofenceWire &)fence
             resolve:(RCTPromiseResolveBlock)resolve

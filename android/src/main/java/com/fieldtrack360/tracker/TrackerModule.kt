@@ -168,6 +168,15 @@ class TrackerModule(reactContext: ReactApplicationContext) :
   override fun androidRequestNotification(promise: Promise) =
     TrackerPermissions.requestNotification(this, promise)
 
+  override fun androidGetBackgroundRestrictions(promise: Promise) =
+    TrackerPermissions.getBackgroundRestrictions(this, promise)
+
+  override fun androidOpenBatteryOptimizationSettings(promise: Promise) =
+    TrackerPermissions.openBatteryOptimizationSettings(this, promise)
+
+  override fun androidRequestBatteryOptimizationExemption(promise: Promise) =
+    TrackerPermissions.requestBatteryOptimizationExemption(this, promise)
+
   // ── Geofencing ──────────────────────────────────────────────────────────────
   override fun geofenceAdd(fence: ReadableMap, promise: Promise) =
     GeofenceModule.add(this, fence, promise)

@@ -250,6 +250,18 @@ export interface Spec extends TurboModule {
   androidRequestActivityRecognition(): Promise<boolean>;
   androidHasNotificationPermission(): Promise<boolean>;
   androidRequestNotification(): Promise<boolean>;
+  // Battery optimisation (Android SDK 1.0.10-alpha06). The Intents stay native, like
+  // appSettingsIntent(). androidRequestBatteryOptimizationExemption() resolves false WITHOUT
+  // launching anything when the SDK's intent is null: the host manifest does not declare
+  // REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, or the exemption is already held.
+  androidGetBackgroundRestrictions(): Promise<{
+    ignoringBatteryOptimizations: boolean;
+    backgroundRestricted: boolean;
+    standbyBucket: number | null;
+    degraded: boolean;
+  }>;
+  androidOpenBatteryOptimizationSettings(): Promise<boolean>;
+  androidRequestBatteryOptimizationExemption(): Promise<boolean>;
 
   // ── Geofencing (flat native names; Tracker.geofences.* in the public API) ──────
   // Return types take the Android shape (TrackerResult); the iOS mapper wraps its bare Bool/Int.

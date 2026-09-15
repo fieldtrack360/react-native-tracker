@@ -170,6 +170,27 @@ extension TrackerImpl {
     onReject("unsupportedOnPlatform", "androidRequestNotification() is Android-only; not available on iOS")
   }
 
+  /// android.getBackgroundRestrictions() — Android-only; rejects on iOS.
+  @objc(androidGetBackgroundRestrictionsOnResolve:onReject:)
+  public static func androidGetBackgroundRestrictions(onResolve: @escaping (NSDictionary) -> Void,
+                                                      onReject: @escaping (NSString, NSString) -> Void) {
+    onReject("unsupportedOnPlatform", "androidGetBackgroundRestrictions() is Android-only; not available on iOS")
+  }
+
+  /// android.openBatteryOptimizationSettings() — Android-only; rejects on iOS.
+  @objc(androidOpenBatteryOptimizationSettingsOnResolve:onReject:)
+  public static func androidOpenBatteryOptimizationSettings(onResolve: @escaping (NSNumber) -> Void,
+                                                            onReject: @escaping (NSString, NSString) -> Void) {
+    onReject("unsupportedOnPlatform", "androidOpenBatteryOptimizationSettings() is Android-only; not available on iOS")
+  }
+
+  /// android.requestBatteryOptimizationExemption() — Android-only; rejects on iOS.
+  @objc(androidRequestBatteryOptimizationExemptionOnResolve:onReject:)
+  public static func androidRequestBatteryOptimizationExemption(onResolve: @escaping (NSNumber) -> Void,
+                                                                onReject: @escaping (NSString, NSString) -> Void) {
+    onReject("unsupportedOnPlatform", "androidRequestBatteryOptimizationExemption() is Android-only; not available on iOS")
+  }
+
   // MARK: - Device integrity + online licence → Android-only, reject on iOS
 
   // The device-integrity layer and the online licence check are Android-only surfaces. iOS 1.0.0

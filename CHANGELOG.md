@@ -9,6 +9,74 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.15] — 2026-09-15
+
+Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha06**
+
+The Android pin moves. Three Android methods are added for reading and fixing the battery policy
+that stops background tracking on OEM builds, and the SDK closes two ways its foreground service
+could be killed or lost around a start. Nothing in an app that builds against `1.0.14` needs
+editing; one **manifest block is recommended** for every Android host — see *Changed*.
+
+### Added
+
+- **`Tracker.android.getBackgroundRestrictions()`**, bridged to the Android SDK's new
+  `PermissionManager.backgroundRestrictions()`. Resolves `{ ignoringBatteryOptimizations,
+  backgroundRestricted, standbyBucket, degraded }` and needs no permission. `degraded` is the SDK's
+  own verdict — background-restricted, or standby bucket rare/restricted — carried across rather
+  than recomputed in JS. Not holding the exemption is the normal state of almost every app and does
+  not count as degraded. New exported type `BackgroundRestrictions`.
+
+- **`Tracker.android.openBatteryOptimizationSettings()`** — opens the system battery-optimisation
+  list. Needs no permission and always works. Resolves `true` once started.
+
+- **`Tracker.android.requestBatteryOptimizationExemption()`** — the one-tap exemption dialog.
+  Resolves **`false` and launches nothing** when the host manifest does not declare
+  `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` or the exemption is already held (the SDK returns a null
+  intent for both). The SDK still does not declare that permission: it is Play-policy reviewed and
+  stays the host's decision. Fall back to `openBatteryOptimizationSettings()` on `false`.
+
+  All three reject `unsupportedOnPlatform` on iOS.
+
+### Changed
+
+- **Android: recommended — remove WorkManager's `androidx.startup` initializer from your manifest.**
+  README *Android setup*, step 3, has the block. WorkManager otherwise initialises on the main
+  thread of every cold start, inside the ~10 s start-foreground deadline the tracking service is
+  racing when the process is started cold to run it; overrunning that is a fatal
+  `ForegroundServiceDidNotStartInTimeException` the SDK cannot catch. From this pin the SDK routes
+  every WorkManager handle through its own accessor, which initialises WorkManager with the default
+  configuration on first use, so **the SDK itself needs no `Configuration.Provider`**. That covers
+  the SDK only: if your app or another library (e.g. Notifee) uses WorkManager, add the block
+  together with a `Configuration.Provider` on your `Application`, or leave it out — without the
+  provider those callers can hit `WorkManager is not initialized properly` before the SDK has
+  initialised it. The SDK does not ship the removal in its own manifest for that reason.
+
+- **Android: the `'device_location'` log entry carries the battery policy.** `data` gains
+  `battery_optimised`, `background_restricted` and `standby_bucket`, each `null` when it could not
+  be read. The entry escalates to `'warn'` when the state is degraded — never on the exemption
+  alone — and names a restriction in its message. The same row now explains a session that started
+  fine and stopped an hour later, not only one that never opened.
+
+- Native SDK pins: Android `1.0.10-alpha04` → `1.0.10-alpha06`. iOS stays at `1.0.7` (`6353828`).
+  (`1.0.10-alpha05` was never published as a working artifact: its release build failed R8 on the
+  new WorkManager accessor, which `alpha06` keeps.)
+
+### Fixed
+
+- **Android: the tracking service's supervision no longer runs on the main thread.** It started
+  inline inside `onStartCommand` and resumed on main for graph construction, Play Services and
+  sensor registration, wake-lock acquisition and notification refreshes — time spent inside the
+  windows the platform measures. It now runs on a background dispatcher; only `stopSelf` stays on
+  main.
+
+- **Android: a `stop()` that lands while a service start is still in flight no longer loses the
+  session or trips the start-foreground deadline.** Starts and stops were not serialised, and
+  tearing the service down before it promoted could leave an open session with no service and
+  nothing that noticed. Stops in that window are now delivered as a queued stop command behind the
+  pending start, and a `start()` that tears down a previous session first is kept on the direct
+  route so its own start is not swallowed.
+
 ## [1.0.14] — 2026-09-10
 
 Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha04**
@@ -549,6 +617,7 @@ Pinned native SDKs: iOS **1.0.0** · Android **1.0.0**
   activity and provider state, the upload (sync) engine, two native map components
   (`TrackMapView`, `LiveTrackMapView`), permissions, diagnostics, and an Expo config plugin.
 
+[1.0.15]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.14...v1.0.15
 [1.0.14]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.13...v1.0.14
 [1.0.13]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.12...v1.0.13
 [1.0.12]: https://github.com/fieldtrack360/react-native-tracker/compare/v1.0.11...v1.0.12

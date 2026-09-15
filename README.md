@@ -138,7 +138,72 @@ override fun onCreate() {
 from JS re-applies real config and is safe. It becomes **required**, not optional, if you use
 [headless events](#headless-events--android-only).
 
-**Nothing else.** The foreground service, the boot receiver, the activity/geofence receivers and
+**3 — (Recommended) take WorkManager off the cold-start path.** A manifest block, no Kotlin. In
+`android/app/src/main/AndroidManifest.xml`, add the `tools` namespace to `<manifest>` and this inside
+`<application>`:
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+    </application>
+</manifest>
+```
+
+WorkManager otherwise initialises itself from a `ContentProvider` on the main thread of **every cold
+start**, before `Application.onCreate`. The tracking service is started with
+`startForegroundService()`, and the platform's ~10 second start-foreground deadline opens at that
+call — while the process is very often starting cold to answer it (sticky restart, boot, OEM
+revival). Overrun it and the system kills the app with
+`ForegroundServiceDidNotStartInTimeException`, which the SDK cannot catch.
+
+**The SDK alone does not need `Configuration.Provider`.** Since Android SDK `1.0.10-alpha06` it
+initialises WorkManager with the default configuration the first time *it* needs a handle. That
+covers the SDK and nothing else: WorkManager only honours `Configuration.Provider` on your
+`Application` class, so no library can supply it for you.
+
+**Any other WorkManager user in your app needs `Configuration.Provider` alongside the block.** Your
+own workers, or a library such as `@notifee/react-native` or `react-native-maps` tile caching, can
+call `WorkManager.getInstance()` before the SDK has, and that call throws
+`IllegalStateException: WorkManager is not initialized properly`. Some libraries catch it and fail
+silently. Notifee does exactly that when Android starts the app in the background to deliver a
+notification-blocked broadcast: the event is dropped, and `onBackgroundEvent` never sees
+`APP_BLOCKED` / `CHANNEL_BLOCKED`. Implementing the provider makes WorkManager initialise lazily on
+the first call from *any* caller and keeps the cold-start saving:
+
+```kotlin
+// android/app/src/main/java/.../MainApplication.kt
+import androidx.work.Configuration
+
+class MainApplication : Application(), ReactApplication, Configuration.Provider {
+  override val workManagerConfiguration: Configuration
+    get() = Configuration.Builder().build()
+  // ...
+}
+```
+
+```groovy
+// android/app/build.gradle — libraries keep WorkManager implementation-scoped, so the app must
+// declare it to see Configuration. Use the version your build already resolves
+// (./gradlew :app:dependencies | grep work-runtime).
+implementation("androidx.work:work-runtime:2.10.2")
+```
+
+If you cannot tell whether anything else uses WorkManager, add the provider anyway or leave the
+block out — both are safe. The block without the provider is safe only when the SDK is the sole
+WorkManager user.
+
+**Nothing else is required.** The foreground service, the boot receiver, the activity/geofence receivers and
 every permission merge in from the AAR manifest — see [Permissions](#permissions).
 
 ### iOS setup
@@ -507,6 +572,34 @@ plus the tracking foreground service (`foregroundServiceType="location"`), the b
 (`BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`) and the activity-transition / stationary-fence
 receivers. `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is deliberately **not** declared — it is
 Play-policy sensitive and must be your explicit choice.
+
+### Battery optimisation — Android only
+
+Background tracking on OEM builds usually stops because of battery policy, not permissions.
+`Tracker.android.getBackgroundRestrictions()` reads that state with no permission, and two methods
+open the remedy:
+
+```ts
+const r = await Tracker.android.getBackgroundRestrictions();
+// { ignoringBatteryOptimizations, backgroundRestricted, standbyBucket, degraded }
+if (r.degraded || !r.ignoringBatteryOptimizations) {
+  // One-tap dialog when your manifest declares REQUEST_IGNORE_BATTERY_OPTIMIZATIONS;
+  // false (nothing shown) otherwise, or when the exemption is already held.
+  if (!(await Tracker.android.requestBatteryOptimizationExemption())) {
+    await Tracker.android.openBatteryOptimizationSettings();   // always works, two taps
+  }
+}
+```
+
+**`ignoringBatteryOptimizations: false` is the normal state of almost every app** and not a fault on
+its own — `degraded` (background-restricted, or standby bucket rare/restricted) ignores it
+deliberately. Gate a warning on `degraded`; treat the exemption as a remedy to offer.
+
+Declare `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` in your own manifest only if your app qualifies under
+Play policy (a core feature that cannot work under Doze). Without it,
+`requestBatteryOptimizationExemption()` resolves `false` rather than launching an intent that throws
+on some OEMs and silently does nothing on others. Re-read `getBackgroundRestrictions()` when your
+screen regains focus to reflect what the user changed.
 
 ### iOS — declared by you
 
@@ -1217,7 +1310,10 @@ worth knowing about, because they are what answer "this device never records any
   A `start()` refused at the permission gate opens no session, so this one is filed against the
   device with a **null `sessionId`**. It is `'warn'` whenever the state would stop or degrade
   tracking, so it survives the default `level: 'info'`. A granted start writes one line per session;
-  a refused start writes every time.
+  a refused start writes every time. Since Android SDK `1.0.10-alpha06` it also carries the
+  battery-policy state — `battery_optimised`, `background_restricted`, `standby_bucket` in `data`
+  (each `null` when unreadable) — so the same row explains a session that started fine and stopped
+  an hour later. It escalates to `'warn'` on `degraded`, never on the exemption alone.
 - `'device_motion'` — the device's motion hardware, once per session. It explains a gap *inside* a
   session, where `'device_location'` explains a session that never opened.
 
@@ -1331,6 +1427,9 @@ availability is **both platforms**.
 | `requestActivityRecognition()` | — | `Promise<boolean>` |
 | `hasNotificationPermission()` | — | `Promise<boolean>` |
 | `requestNotification()` | — | `Promise<boolean>` (no-op below Android 13) |
+| `getBackgroundRestrictions()` | — | `Promise<BackgroundRestrictions>` |
+| `openBatteryOptimizationSettings()` | — | `Promise<boolean>` |
+| `requestBatteryOptimizationExemption()` | — | `Promise<boolean>` — `false` and nothing shown when `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is not in your manifest or the exemption is already held |
 
 ### Subscriptions
 
@@ -1468,6 +1567,14 @@ type DeviceSensors = {
 type BatteryInfo = {
   percent: number | null; isCharging: boolean | null;
   powerSource: 'none' | 'ac' | 'usb' | 'wireless' | 'dock' | 'unknown'; isLow: boolean;
+};
+
+/** Android only. `ignoringBatteryOptimizations: false` is the normal state, not a fault — `degraded`
+ *  (background-restricted, or standby bucket >= 40) is the SDK's verdict. `standbyBucket` is null
+ *  below API 28. */
+type BackgroundRestrictions = {
+  ignoringBatteryOptimizations: boolean; backgroundRestricted: boolean;
+  standbyBucket: number | null; degraded: boolean;
 };
 
 type TrackFix = {
@@ -1783,6 +1890,9 @@ Fetch-script environment variables (all optional):
 | The notification still says "Tracking active" after setting `notificationTitle` | Either the icon/title config never reached the SDK — `reset: false` on `ready()` keeps the persisted config, so pass `reset: true` — or the app is on a plugin release older than `1.0.4`, whose pinned Android SDK ignored these keys |
 | Notification text is right but the icon is the generic pin | The name in `notificationSmallIconResName` did not resolve. It is a filename in `android/app/src/main/res/drawable/` with no path and no extension; logcat names the one it could not find |
 | Session stops when the app is swiped away | `android.stopOnTerminate` — and check the notification permission: a suppressed foreground-service notification makes the OS more willing to kill the app |
+| Crash: `ForegroundServiceDidNotStartInTimeException` — "Context.startForegroundService() did not then call Service.startForeground()" | The process started cold to answer the service start and ran out of the ~10 s deadline before the service was constructed. Take WorkManager's initializer off the cold-start path — [Android setup](#android-setup) step 3 — and keep other work out of `Application` attach/`onCreate` |
+| `IllegalStateException: WorkManager is not initialized properly…` in logcat, or a library's background work silently not running | The WorkManager block from [Android setup](#android-setup) step 3 is in the manifest, but `Application` does not implement `Configuration.Provider`, and a library other than the SDK (e.g. Notifee) reached WorkManager first. Add the provider, or remove the block |
+| Tracking stops an hour into a session on an OEM build, no error | Battery policy. `Tracker.android.getBackgroundRestrictions()` — `degraded` is `true` when the app is background-restricted or in the rare/restricted standby bucket. Offer `requestBatteryOptimizationExemption()` / `openBatteryOptimizationSettings()`, see [Battery optimisation](#battery-optimisation--android-only) |
 | `playServicesUnavailable` | The device has no usable Google Play services; the fused provider is unavailable |
 | Background points arrive in clumps a minute late, then catch up | OS batching, not a dead provider — the default `android.maxUpdateDelayMs` lets the OS hold a fix for a full interval. Set `android.aggressiveOemProfile: true` (Android SDK 1.0.10) for the whole latency trade, or `android.maxUpdateDelayMs: 0` for that half alone. Set `deliveryStalenessMs` to have lateness reported as a `diagnostic` event so you can tell this apart from a provider that has stopped |
 | Nothing recovers the service on MIUI/HyperOS at the *Restricted* battery setting | `JobScheduler` does not run there at all, which takes out `backstopIntervalMin` and the restore worker together. `android.serviceHeartbeatMin` (Android SDK 1.0.10, default 15) is an `AlarmManager` chain on a separate subsystem. Declaring `SCHEDULE_EXACT_ALARM` in your own manifest upgrades it to an exact alarm, which on API 31+ is also what makes it eligible to start the foreground service — the SDK will not declare that permission on your behalf |

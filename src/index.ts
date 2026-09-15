@@ -2,6 +2,7 @@ import TrackerNative from './NativeTracker';
 import type {
   AccuracyAuthorization,
   BackgroundRequest,
+  BackgroundRestrictions,
   BatteryInfo,
   DeviceSensors,
   FixDecision,
@@ -290,6 +291,20 @@ const android = {
     TrackerNative.androidHasNotificationPermission(),
   requestNotification: (): Promise<boolean> =>
     TrackerNative.androidRequestNotification(),
+  /** What the OS and OEM allow in the background. Cheap and permission-free — safe to re-read
+   *  when a settings screen regains focus, to reflect a change the user just made. */
+  getBackgroundRestrictions: (): Promise<BackgroundRestrictions> =>
+    TrackerNative.androidGetBackgroundRestrictions(),
+  /** Opens the system list of apps and their battery-optimisation setting. Needs no permission,
+   *  always available; costs the user two taps (find the app, choose "Don't optimise"). */
+  openBatteryOptimizationSettings: (): Promise<boolean> =>
+    TrackerNative.androidOpenBatteryOptimizationSettings(),
+  /** The one-tap "let this app run in the background?" dialog. Resolves `false` and shows
+   *  nothing unless your own manifest declares `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` — the SDK
+   *  does not, it is Play-policy reviewed — or when the exemption is already held. Fall back to
+   *  `openBatteryOptimizationSettings()` on `false`. */
+  requestBatteryOptimizationExemption: (): Promise<boolean> =>
+    TrackerNative.androidRequestBatteryOptimizationExemption(),
 };
 
 export const Tracker = {
