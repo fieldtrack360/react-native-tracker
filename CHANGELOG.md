@@ -9,6 +9,26 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.16] — 2026-09-16
+
+Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha07**
+
+Android-only pin bump. No API, type, or manifest change; nothing in an app that builds against
+`1.0.15` needs editing.
+
+### Changed
+
+- Native SDK pins: Android `1.0.10-alpha06` → `1.0.10-alpha07`. iOS stays at `1.0.7` (`6353828`).
+
+### Fixed
+
+- **Android: the first session after a cold start no longer runs two capture pipelines.**
+  `start()` launched the pipeline while the foreground service it had just started ran its own
+  resume path on another thread; both saw an open session with no pipeline and both launched one.
+  The result was duplicate location requests, duplicate fixes, `OUT_OF_ORDER`/`Burst` rejections
+  and corrupted points on affected devices. `start()`, `stop()` and the service's resume path are
+  now serialised; resume backs off instead of waiting while a start or stop is in flight.
+
 ## [1.0.15] — 2026-09-15
 
 Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha06**
