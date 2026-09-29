@@ -9,6 +9,38 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.17] — 2026-09-29
+
+Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha08**
+
+The Android pin moves and one Android method is added for waking a frozen or dozing device from
+your server. Nothing in an app that builds against `1.0.16` needs editing.
+
+### Added
+
+- **`Tracker.android.wake()`**, bridged to the Android SDK's new static `Tracker.wake(context)`.
+  Call it from your FCM background handler on a high-priority, data-only message. Needs no
+  `ready()` and is safe in a cold process. It forces a fix and an upload when the service is
+  alive, restarts the service when a session is open without one, and otherwise does nothing — a
+  wake never starts a session. Resolves a `WakeResult` (`alive`, `revived`, `refused`,
+  `noSession`, `disabled`, `timedOut`). New exported type `WakeResult`. The package takes no
+  Firebase dependency; the app owns FCM. Rejects `unsupportedOnPlatform` on iOS. See *Remote wake
+  (FCM)* in the README for the server payload and when to send it.
+
+### Changed
+
+- Native SDK pins: Android `1.0.10-alpha07` → `1.0.10-alpha08`. iOS stays at `1.0.7` (`6353828`).
+- Documented: do not reuse the stationary fence id (`fieldtrack-stationary`, or your
+  `android.stationaryGeofenceId`) for a fence of your own — the SDK treats any fence under that id
+  as its wake fence.
+
+### Fixed
+
+- **Android: leaving a stop no longer goes unnoticed after the SDK loses track of its stationary
+  fence.** The fence could stay registered with Play Services after the SDK lost its record of it;
+  the exit was dropped as `unknown_geofence:fieldtrack-stationary` and tracking stayed asleep while
+  the user drove. The exit now wakes tracking whether or not the record exists.
+
 ## [1.0.16] — 2026-09-16
 
 Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha07**

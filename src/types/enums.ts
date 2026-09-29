@@ -73,3 +73,18 @@ export type LicenseStatus =
  *  charging iPhone reads `unknown`, so do not infer "on battery" from anything but `none`. */
 export type PowerSource =
   'none' | 'ac' | 'usb' | 'wireless' | 'dock' | 'unknown';
+
+/** Android only. What `Tracker.android.wake()` did: `alive` requested a fix and an upload from a
+ *  running service; `revived` started the service for an open session; `refused` means the
+ *  platform refused the start and the SDK's own restore path retries; `noSession` means nothing
+ *  was open, so nothing was started; `disabled` means `service.foregroundService` is off;
+ *  `timedOut` means the session lookup did not finish within ~8 s. `dispatched` (called on the
+ *  main thread) is never returned through the plugin. */
+export type WakeResult =
+  | 'alive'
+  | 'revived'
+  | 'refused'
+  | 'noSession'
+  | 'disabled'
+  | 'dispatched'
+  | 'timedOut';

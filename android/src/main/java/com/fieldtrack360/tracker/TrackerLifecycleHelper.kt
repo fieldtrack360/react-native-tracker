@@ -95,6 +95,20 @@ object LifecycleModule {
     }
   }
 
+  // wake() — the SDK's static remote-wake entry for a high-priority FCM message. Static on
+  // purpose: it needs no ready() and works in a cold process, so it does not go through the
+  // `tracker` instance. @WorkerThread; module.scope is Dispatchers.Default, so it never takes the
+  // DISPATCHED (main-thread) branch. WakeResult crosses as lower camel.
+  fun wake(module: TrackerModule, promise: Promise) {
+    module.scope.launch {
+      try {
+        promise.resolve(TrackerMappers.screamingSnakeToLowerCamel(Tracker.wake(module.appContext).name))
+      } catch (t: Throwable) {
+        promise.reject("internalError", t.message ?: "wake failed", t)
+      }
+    }
+  }
+
   // `android.enableHeadless` off the raw wire config. Malformed JSON never reaches here —
   // decodeConfig has already parsed the same string — so a throw would be a contradiction, not a
   // case to handle; an absent key is simply false.

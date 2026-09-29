@@ -605,6 +605,73 @@ Play policy (a core feature that cannot work under Doze). Without it,
 on some OEMs and silently does nothing on others. Re-read `getBackgroundRestrictions()` when your
 screen regains focus to reflect what the user changed.
 
+### Remote wake (FCM) — Android only
+
+A process that an OEM battery manager has frozen, or that Android has parked in Doze, uploads
+nothing and notices nothing. The device cannot see that gap; your server can — an open shift with
+no upload for N minutes. Of the ways to wake an Android app, only a **high-priority FCM data
+message** gets through Doze, and it is one of the few things that lets an app start a foreground
+service from the background on API 31+.
+
+Neither this package nor the SDK depends on Firebase. You own FCM (typically
+`@react-native-firebase/messaging`) and hand the message to `Tracker.android.wake()`:
+
+```js
+// index.js — top level, next to AppRegistry.registerComponent
+import messaging from '@react-native-firebase/messaging';
+import { Platform } from 'react-native';
+import { Tracker } from '@fieldtrack360/react-native-tracker';
+
+messaging().setBackgroundMessageHandler(async (message) => {
+  if (Platform.OS === 'android' && message.data?.type === 'fieldtrack_wake') {
+    await Tracker.android.wake();
+  }
+});
+```
+
+Send the FCM token to your backend against the signed-in user and device (`messaging().getToken()`
+and `onTokenRefresh`). `wake()` needs no `ready()` and is safe in a cold process. It decides whether
+there is anything to do and resolves a `WakeResult`:
+
+| `WakeResult` | Meaning |
+|---|---|
+| `alive` | The service was running. A fix and an upload drain were requested |
+| `revived` | A session was open with no service behind it; the service was started |
+| `refused` | The platform refused the start. The SDK's own restore path is queued and retries with backoff |
+| `noSession` | No session is open. Nothing was started — **a wake never starts a session** |
+| `disabled` | `android.foregroundService` is `false`; nothing to start |
+| `timedOut` | The session lookup did not finish within ~8 s; nothing was started |
+
+Each call is written to the [session log](#session-logs--android-only) as a `Tracker` line,
+`remote wake: <RESULT>` (the SDK's own casing, e.g. `NO_SESSION`) — that line is how you tell whether a push reached the device at all.
+
+**What the server must send.** Data-only and high priority. A `notification` block makes Android
+display the message itself while the app is in the background, and the handler is never called.
+Normal priority waits until Doze ends.
+
+```json
+{ "message": {
+    "token": "<device FCM token>",
+    "android": { "priority": "high", "ttl": "300s" },
+    "data": { "type": "fieldtrack_wake" } } }
+```
+
+**When to send it.** On *no upload or heartbeat for N minutes while a shift is open* — never on *no
+movement*: a parked user legitimately stores nothing, and pushing at a healthy device wastes the
+high-priority budget. Back off (for example 3 → 6 → 12 → 30 min) and stop once the device's
+last-seen time moves. FCM may downgrade high-priority messages that rarely lead to anything the user
+sees; a revival posts the tracking notification, which counts.
+
+**What it cannot do.** It cannot reach a **force-stopped** app — Android delivers no FCM to a stopped
+package until the user opens it. Some OEM killers (ColorOS `o-kill`, some MIUI paths) amount to a
+force-stop; there only the [battery-optimisation exemption](#battery-optimisation--android-only) and
+the OEM's auto-launch / background-activity toggle keep tracking alive.
+
+**Cold start.** `firebase-messaging` adds `FirebaseInitProvider` to every cold start of your process,
+inside the window before the tracking service must promote to the foreground. It is normally tens of
+milliseconds; measure it on your slowest device. A JS background handler also pays for starting the
+React Native runtime before `wake()` runs.
+
 ### iOS — declared by you
 
 The three usage strings, the two background modes and the two `BGTaskSchedulerPermittedIdentifiers`
@@ -1174,6 +1241,11 @@ Fences are independent of tracking: they need `ready()` and authorization, fire 
 open**, and survive reboot. The usable cap is **19** (one of the platform's 20 slots is reserved
 for the SDK's stationary fence).
 
+**Do not reuse the stationary fence's id for a fence of your own** — `'fieldtrack-stationary'` on
+Android, or whatever you set as `android.stationaryGeofenceId`. On Android an EXIT on that id is how
+a parked, killed process learns the user has driven off, and the SDK recognises it by id alone, so a
+fence of yours under the same id is treated as the wake fence too.
+
 ```ts
 const added = await Tracker.geofences.add({
   id: 'depot',
@@ -1553,6 +1625,7 @@ import Tracker, { TrackerSync, TrackMapView, LiveTrackMapView, onTrackerEvent } 
 | `getBackgroundRestrictions()` | — | `Promise<BackgroundRestrictions>` |
 | `openBatteryOptimizationSettings()` | — | `Promise<boolean>` |
 | `requestBatteryOptimizationExemption()` | — | `Promise<boolean>` — `false` and nothing shown when `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` is not in your manifest or the exemption is already held |
+| `wake()` | — | `Promise<WakeResult>` — remote wake from a high-priority FCM data message; needs no `ready()`, never starts a session. See [Remote wake (FCM)](#remote-wake-fcm--android-only) |
 
 ### Subscriptions
 
@@ -1840,7 +1913,8 @@ type LogSyncResult =
 `CameraFollowMode` `'none'|'follow'|'followBearing'` ·
 `PowerSource` `'none'|'ac'|'usb'|'wireless'|'dock'|'unknown'` (iOS never reports `ac`/`usb`/`wireless`) ·
 `GeofenceTransition` `'enter'|'exit'|'dwell'` (`dwell` iOS only) ·
-`LicenseStatus` `'active'|'revoked'|'expired'|'unknownKey'|'invalidKey'|'packageMismatch'|'sdkMismatch'|'unrecognised'` (Android).
+`LicenseStatus` `'active'|'revoked'|'expired'|'unknownKey'|'invalidKey'|'packageMismatch'|'sdkMismatch'|'unrecognised'` (Android) ·
+`WakeResult` `'alive'|'revived'|'refused'|'noSession'|'disabled'|'dispatched'|'timedOut'` (Android; `dispatched` is never returned through this package).
 
 ### `TrackerConfig`
 
@@ -2093,6 +2167,11 @@ Fetch-script environment variables (all optional):
 | Crash: `ForegroundServiceDidNotStartInTimeException` — "Context.startForegroundService() did not then call Service.startForeground()" | The process started cold to answer the service start and ran out of the ~10 s deadline before the service was constructed. Take WorkManager's initializer off the cold-start path — [Android setup](#android-setup) step 3 — and keep other work out of `Application` attach/`onCreate` |
 | `IllegalStateException: WorkManager is not initialized properly…` in logcat, or a library's background work silently not running | The WorkManager block from [Android setup](#android-setup) step 3 is in the manifest, but `Application` does not implement `Configuration.Provider`, and a library other than the SDK (e.g. Notifee) reached WorkManager first. Add the provider, or remove the block |
 | Tracking stops an hour into a session on an OEM build, no error | Battery policy. `Tracker.android.getBackgroundRestrictions()` — `degraded` is `true` when the app is background-restricted or in the rare/restricted standby bucket. Offer `requestBatteryOptimizationExemption()` / `openBatteryOptimizationSettings()`, see [Battery optimisation](#battery-optimisation--android-only) |
+| Long straight lines on the map, with nothing recorded in between | The process was frozen, killed or in Doze. Look in the session log for `ProcessExit` (`o-kill`, `PACKAGE_UPDATED`) and gaps between `DEVICE_LOCATION` re-inits. Exempt the app from battery optimisation and enable the OEM auto-launch toggle; wire [remote wake](#remote-wake-fcm--android-only); draw time gaps as breaks on your map, not as travel |
+| `unknown_geofence:fieldtrack-stationary`, then minutes with no points while driving | Fixed from `1.0.17` (Android SDK `1.0.10-alpha08`): the stationary wake fence could stay registered with Play Services after the SDK lost its record of it, and the exit was dropped. Upgrade the package |
+| Server sends idle pushes but `last_seen` never moves | Nothing calls `Tracker.android.wake()`, the message has a `notification` block, or it is not high priority. Send data-only, high-priority messages, see [Remote wake (FCM)](#remote-wake-fcm--android-only) |
+| `remote wake: NO_SESSION` in the log | The push arrived, but no session was open. Expected after end of day or sign-out — stop pushing to that device |
+| `remote wake: REFUSED` in the log | The platform refused the foreground-service start — usually a normal-priority message, or an OEM rule. Confirm `"priority": "high"`; the SDK retries on its own restore path |
 | `playServicesUnavailable` | The device has no usable Google Play services; the fused provider is unavailable |
 | Background points arrive in clumps a minute late, then catch up | OS batching, not a dead provider — the default `android.maxUpdateDelayMs` lets the OS hold a fix for a full interval. Set `android.aggressiveOemProfile: true` (Android SDK 1.0.10) for the whole latency trade, or `android.maxUpdateDelayMs: 0` for that half alone. Set `deliveryStalenessMs` to have lateness reported as a `diagnostic` event so you can tell this apart from a provider that has stopped |
 | Nothing recovers the service on MIUI/HyperOS at the *Restricted* battery setting | `JobScheduler` does not run there at all, which takes out `backstopIntervalMin` and the restore worker together. `android.serviceHeartbeatMin` (Android SDK 1.0.10, default 15) is an `AlarmManager` chain on a separate subsystem. Declaring `SCHEDULE_EXACT_ALARM` in your own manifest upgrades it to an exact alarm, which on API 31+ is also what makes it eligible to start the foreground service — the SDK will not declare that permission on your behalf |

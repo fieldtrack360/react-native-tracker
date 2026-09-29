@@ -25,6 +25,7 @@ import type {
   TrackOptions,
   TrackPoint,
   TrackSession,
+  WakeResult,
 } from './types';
 
 export * from './types';
@@ -305,6 +306,12 @@ const android = {
    *  `openBatteryOptimizationSettings()` on `false`. */
   requestBatteryOptimizationExemption: (): Promise<boolean> =>
     TrackerNative.androidRequestBatteryOptimizationExemption(),
+  /** Remote wake, for a high-priority FCM data message — call it from your FCM background
+   *  handler. Needs no `ready()`; safe in a cold process. Forces a fix and an upload if the
+   *  service is alive, restarts it if a session is open with no service, and otherwise does
+   *  nothing — a wake never starts a session. */
+  wake: async (): Promise<WakeResult> =>
+    (await TrackerNative.androidWake()) as WakeResult,
 };
 
 export const Tracker = {

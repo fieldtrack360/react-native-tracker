@@ -474,6 +474,13 @@ static NSDictionary *RCTTrackerTrackOptionsDict(JS::NativeTracker::TrackOptionsW
                                                           onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
 }
 
+- (void)androidWake:(RCTPromiseResolveBlock)resolve
+             reject:(RCTPromiseRejectBlock)reject
+{
+  [TrackerImpl androidWakeOnResolve:^(NSString *v) { resolve(v); }
+                           onReject:^(NSString *code, NSString *message) { reject(code, message, nil); }];
+}
+
 // ── Geofencing ────────────────────────────────────────────────────────────────
 - (void)geofenceAdd:(JS::NativeTracker::GeofenceWire &)fence
             resolve:(RCTPromiseResolveBlock)resolve

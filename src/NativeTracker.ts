@@ -262,6 +262,9 @@ export interface Spec extends TurboModule {
   }>;
   androidOpenBatteryOptimizationSettings(): Promise<boolean>;
   androidRequestBatteryOptimizationExemption(): Promise<boolean>;
+  // Remote wake (Android SDK 1.0.10-alpha08). Resolves the WakeResult as a lower-camel string.
+  // Static in the SDK: needs no ready(), safe in a cold process (an FCM background handler).
+  androidWake(): Promise<string>;
 
   // ── Geofencing (flat native names; Tracker.geofences.* in the public API) ──────
   // Return types take the Android shape (TrackerResult); the iOS mapper wraps its bare Bool/Int.

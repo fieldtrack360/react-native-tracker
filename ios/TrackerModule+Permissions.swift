@@ -191,6 +191,13 @@ extension TrackerImpl {
     onReject("unsupportedOnPlatform", "androidRequestBatteryOptimizationExemption() is Android-only; not available on iOS")
   }
 
+  /// android.wake() — Android-only (remote wake via FCM); rejects on iOS.
+  @objc(androidWakeOnResolve:onReject:)
+  public static func androidWake(onResolve: @escaping (NSString) -> Void,
+                                 onReject: @escaping (NSString, NSString) -> Void) {
+    onReject("unsupportedOnPlatform", "androidWake() is Android-only; not available on iOS")
+  }
+
   // MARK: - Device integrity + online licence → Android-only, reject on iOS
 
   // The device-integrity layer and the online licence check are Android-only surfaces. iOS 1.0.0
