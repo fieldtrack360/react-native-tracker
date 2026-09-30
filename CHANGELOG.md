@@ -9,6 +9,28 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.18] — 2026-09-30
+
+Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha09**
+
+The Android pin moves. No API change; nothing in an app that builds against `1.0.17` needs editing.
+
+### Changed
+
+- Native SDK pins: Android `1.0.10-alpha08` → `1.0.10-alpha09`. iOS stays at `1.0.7` (`6353828`).
+
+### Fixed
+
+- **Android: tracking comes back in seconds after a swipe from recents on MIUI, ColorOS, Funtouch
+  and OxygenOS.** Those ROMs kill the process shortly after the swipe, and the service was restored
+  only by the next heartbeat — field logs showed 15-to-55-minute gaps. The SDK now pulls the
+  heartbeat forward to about 5 s when the task is removed during an active session, and emits a
+  `diagnostic` event `"task removed from recents during an active session; fast restore armed"`.
+  The restore is only that fast when the alarm is exact, which needs `SCHEDULE_EXACT_ALARM` in your
+  own manifest (the SDK does not declare it); otherwise it lands at the next eligible moment. A swipe
+  the ROM treats as a force stop cancels the alarm too — nothing recovers that until the app is
+  opened.
+
 ## [1.0.17] — 2026-09-29
 
 Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha08**
