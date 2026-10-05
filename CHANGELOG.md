@@ -9,6 +9,24 @@ Entries cover the **published plugin** only — the `example/` app is not part o
 changes are not listed. Each release also pins the native SDKs it is built against; those pins are
 listed because upgrading the plugin upgrades them.
 
+## [1.0.19] — 2026-10-05
+
+Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha10**
+
+The Android pin moves. No API change; nothing in an app that builds against `1.0.18` needs editing.
+
+### Changed
+
+- Native SDK pins: Android `1.0.10-alpha09` → `1.0.10-alpha10`. iOS stays at `1.0.7` (`6353828`).
+
+### Fixed
+
+- **Android: no more false mock-location findings on Xiaomi MIUI/HyperOS.** OEM preinstalls such as
+  `com.miui.screenrecorder` report the mock-location app-op as allowed with no mock app selected,
+  and the integrity check counted them — under a blocking mock policy that refused `ready()`. The
+  SDK now only considers packages that declare `ACCESS_MOCK_LOCATION`, the only ones Developer
+  options can select.
+
 ## [1.0.18] — 2026-09-30
 
 Pinned native SDKs: iOS **1.0.7** (`6353828`) · Android **1.0.10-alpha09**
